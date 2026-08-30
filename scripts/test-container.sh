@@ -99,10 +99,17 @@ docker run -d --name "${NAME}" \
 	--tmpfs /tmp:rw,noexec,nosuid,size=16m \
 	-v "${CONFIG}:/etc/labntp/config.yaml:ro" \
 	-v "${TOKEN}:/etc/labntp/token:ro" \
-	-p 127.0.0.1::1123/udp \
-	-p 127.0.0.1::8088/tcp \
+	-p 127.0.0.1:0:1123/udp \
+	-p 127.0.0.1:0:8088/tcp \
 	"${IMAGE}" \
 	serve --config=/etc/labntp/config.yaml --ntp-listen=:1123 --management-listen=:8088
+
+if [ "$(docker inspect --format '{{.State.Running}}' "${NAME}")" != "true" ]; then
+	echo "container is not running" >&2
+	docker inspect --format 'status={{.State.Status}} exit={{.State.ExitCode}} error={{.State.Error}}' "${NAME}" >&2 || true
+	docker logs "${NAME}" >&2 || true
+	exit 1
+fi
 
 readonly_root="$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "${NAME}")"
 if [ "${readonly_root}" != "true" ]; then
@@ -112,6 +119,12 @@ fi
 
 mgmt_port="$(docker port "${NAME}" 8088/tcp | head -n1 | awk -F: '{print $NF}')"
 ntp_port="$(docker port "${NAME}" 1123/udp | head -n1 | awk -F: '{print $NF}')"
+if [ -z "${mgmt_port}" ] || [ -z "${ntp_port}" ]; then
+	echo "published ports missing mgmt=${mgmt_port} ntp=${ntp_port}" >&2
+	docker inspect --format '{{json .HostConfig.PortBindings}}' "${NAME}" >&2 || true
+	docker logs "${NAME}" >&2 || true
+	exit 1
+fi
 
 ok=0
 for _ in $(seq 1 40); do
@@ -123,6 +136,7 @@ for _ in $(seq 1 40); do
 done
 if [ "${ok}" -ne 1 ]; then
 	echo "management ready check failed on 127.0.0.1:${mgmt_port}" >&2
+	docker inspect --format 'status={{.State.Status}} exit={{.State.ExitCode}}' "${NAME}" >&2 || true
 	docker logs "${NAME}" >&2 || true
 	exit 1
 fi

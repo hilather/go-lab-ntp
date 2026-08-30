@@ -39,3 +39,7 @@ First public candidate. Notes: [docs/releases/v1.0.0-rc.1.md](docs/releases/v1.0
 - Lab static bearer (SHA-256, tokens ≥32 bytes, file refs, no Basic). Cookie `labntp_session` + CSRF `X-LabNTP-CSRF`. Management bind fails closed with zero tokens unless listen is off.
 - Hand-rolled OpenMetrics (`labntp_packets_total` includes `oversize`), slog JSON, `labntp healthcheck`.
 - Scratch image HEALTHCHECK (exec form), `examples/` overlay BOM (`labntp.yaml`, compose smoke, labinfo, MCPJungle `bearer_token`), `make test-container` (`:1123`; gated `:123`+`NET_BIND_SERVICE`).
+
+### Fixed
+
+- Container smoke publishes `127.0.0.1:0:8088/tcp` (explicit random host port) so `docker port` works on GitHub-hosted Docker.
