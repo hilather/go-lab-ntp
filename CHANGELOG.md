@@ -6,11 +6,13 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Added
 
-- None.
+- Operator [user guide](docs/guide.md): YAML loading, clock modes, REST/MCP state APIs, Docker, and troubleshooting.
+- Repository header art and mark under `docs/assets/`.
 
 ### Changed
 
-- None.
+- README and START-HERE rewritten in plain English, with copy-paste quick starts for `validate` / `canonicalize` and the `/v1/state*` APIs.
+- Documentation catalog lists the user guide as the operator front door.
 
 ### Fixed
 

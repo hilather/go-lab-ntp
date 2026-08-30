@@ -1,16 +1,18 @@
 # Documentation
 
-Operator front door: [README.md](../README.md). Onboarding: [START-HERE.md](../START-HERE.md). Agent rules: [AGENTS.md](../AGENTS.md).
+Start with the [user guide](guide.md) if you want to run LabNTP. The [README](../README.md) is the product page. [START-HERE.md](../START-HERE.md) is the five-minute path.
 
-This page is the catalog. Normative design documents win over task summaries.
+The numbered files below are the precise rules. When they disagree with a task summary, the numbered files win.
 
 ## Root
 
 | Path | Role |
 |---|---|
-| [README.md](../README.md) | Product page, quick starts |
+| [README.md](../README.md) | Product page, quick starts, YAML and state APIs |
 | [START-HERE.md](../START-HERE.md) | Onboarding |
-| [AGENTS.md](../AGENTS.md) | Mandatory contributor / agent instructions |
+| [docs/guide.md](guide.md) | User guide |
+| [docs/assets/header.jpg](assets/header.jpg) | README header art |
+| [AGENTS.md](../AGENTS.md) | Contributor instructions |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | PR workflow |
 | [SECURITY.md](../SECURITY.md) | Vulnerability reporting |
 | [CHANGELOG.md](../CHANGELOG.md) | Curated history |
