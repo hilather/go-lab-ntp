@@ -1,0 +1,17 @@
+apiVersion: labntp.dev/v1alpha1
+kind: LabNTP
+metadata:
+  name: rate-one
+spec:
+  filters:
+    - name: realtime
+      match:
+        cidrs: ["10.0.0.1/32"]
+      view:
+        mode: rate
+        rate: 1
+    - name: default
+      match:
+        cidrs: ["0.0.0.0/0", "::/0"]
+      view:
+        mode: follow-real

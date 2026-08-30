@@ -1,0 +1,24 @@
+# Binaries and test artifacts
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Local toolchain caches
+.gocache/
+.gomodcache/
+
+# Frontend (embedded copy lives in internal/web/dist)
+web/node_modules/
+web/dist/
+web/coverage/
+
+# Editor and OS noise
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store

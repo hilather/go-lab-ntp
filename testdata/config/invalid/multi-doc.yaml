@@ -1,0 +1,17 @@
+apiVersion: labntp.dev/v1alpha1
+kind: LabNTP
+metadata:
+  name: x
+spec:
+  filters:
+    - name: default
+      match:
+        cidrs: ["0.0.0.0/0", "::/0"]
+      view:
+        mode: follow-real
+---
+apiVersion: labntp.dev/v1alpha1
+kind: LabNTP
+metadata:
+  name: y
+spec: {}

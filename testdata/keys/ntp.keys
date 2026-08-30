@@ -1,0 +1,5 @@
+# testdata ntp.keys — ntpd concatenation ALG(key||header), not HMAC
+# generated to match internal/ntpwire.MAC
+2 MD5 ascii:labdev-md5-key
+3 SHA1 hex:deadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+1 SHA256 hex:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef

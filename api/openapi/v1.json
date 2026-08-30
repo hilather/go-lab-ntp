@@ -1,0 +1,272 @@
+{
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "REST adapter for the shared LabNTP capability registry. Generated from internal/capabilities. Do not edit by hand.",
+    "title": "LabNTP Management API",
+    "version": "v1",
+    "x-generated-by": "internal/control/rest.RenderOpenAPI; DO NOT EDIT."
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/audit": {
+      "get": {
+        "description": "Query recent in-memory audit events.",
+        "operationId": "audit.list",
+        "summary": "Audit list",
+        "tags": [
+          "audit.list"
+        ]
+      }
+    },
+    "/v1/audit/{eventId}": {
+      "get": {
+        "description": "Get one audit event by ID.",
+        "operationId": "audit.get",
+        "summary": "Audit get",
+        "tags": [
+          "audit.get"
+        ]
+      }
+    },
+    "/v1/capabilities": {
+      "get": {
+        "description": "Capability list and protocol metadata.",
+        "operationId": "capabilities.get",
+        "summary": "Capabilities",
+        "tags": [
+          "capabilities.get"
+        ]
+      }
+    },
+    "/v1/changes:apply": {
+      "post": {
+        "description": "Apply operations. expectedRevision is required.",
+        "operationId": "changes.apply",
+        "summary": "Apply",
+        "tags": [
+          "changes.apply"
+        ]
+      }
+    },
+    "/v1/changes:plan": {
+      "post": {
+        "description": "Dry-run operations against the active snapshot.",
+        "operationId": "changes.plan",
+        "summary": "Plan",
+        "tags": [
+          "changes.plan"
+        ]
+      }
+    },
+    "/v1/features": {
+      "get": {
+        "description": "Frozen live vs reset-only catalog.",
+        "operationId": "features.list",
+        "summary": "Features",
+        "tags": [
+          "features.list"
+        ]
+      }
+    },
+    "/v1/filters": {
+      "get": {
+        "description": "List first-match filters in document order.",
+        "operationId": "filters.list",
+        "summary": "List filters",
+        "tags": [
+          "filters.list"
+        ]
+      }
+    },
+    "/v1/filters/{name}": {
+      "delete": {
+        "description": "Remove a filter by name. Catch-all remains required.",
+        "operationId": "filters.delete",
+        "summary": "Delete filter",
+        "tags": [
+          "filters.delete"
+        ]
+      },
+      "get": {
+        "description": "Get one filter by name.",
+        "operationId": "filters.get",
+        "summary": "Get filter",
+        "tags": [
+          "filters.get"
+        ]
+      },
+      "put": {
+        "description": "Upsert a filter by name. Goes through the same compile+swap as Apply.",
+        "operationId": "filters.put",
+        "summary": "Put filter",
+        "tags": [
+          "filters.put"
+        ]
+      }
+    },
+    "/v1/health/live": {
+      "get": {
+        "description": "Process liveness. Not an MCP tool.",
+        "operationId": "health.live",
+        "summary": "Health live",
+        "tags": [
+          "health.live"
+        ]
+      }
+    },
+    "/v1/health/ready": {
+      "get": {
+        "description": "NTP bound, snapshot installed, and management bound or explicitly off. Not an MCP tool.",
+        "operationId": "health.ready",
+        "summary": "Health ready",
+        "tags": [
+          "health.ready"
+        ]
+      }
+    },
+    "/v1/metrics": {
+      "get": {
+        "description": "OpenMetrics text. Served only when observability.metrics.publicPath is true.",
+        "operationId": "metrics.get",
+        "summary": "Metrics",
+        "tags": [
+          "metrics.get"
+        ]
+      }
+    },
+    "/v1/queries": {
+      "get": {
+        "description": "Last-N NTP query ring (authenticated). Reset wipes it.",
+        "operationId": "queries.list",
+        "summary": "Query log",
+        "tags": [
+          "queries.list"
+        ]
+      }
+    },
+    "/v1/schema/config": {
+      "get": {
+        "description": "Published v1alpha1 config JSON Schema.",
+        "operationId": "schema.get",
+        "summary": "Config schema",
+        "tags": [
+          "schema.get"
+        ]
+      }
+    },
+    "/v1/session": {
+      "delete": {
+        "description": "Clear the operator UI session cookie.",
+        "operationId": "session.delete",
+        "summary": "Delete session",
+        "tags": [
+          "session.delete"
+        ]
+      },
+      "get": {
+        "description": "Current session principal (cookie or bearer). Cookie path returns CSRF for reload recovery.",
+        "operationId": "session.get",
+        "summary": "Get session",
+        "tags": [
+          "session.get"
+        ]
+      },
+      "post": {
+        "description": "Cookie + CSRF session for the operator UI. Accepts bearer.",
+        "operationId": "session.create",
+        "summary": "Create session",
+        "tags": [
+          "session.create"
+        ]
+      }
+    },
+    "/v1/state": {
+      "get": {
+        "description": "Redacted spec plus revision metadata.",
+        "operationId": "state.get",
+        "summary": "Get state",
+        "tags": [
+          "state.get"
+        ]
+      }
+    },
+    "/v1/state:export": {
+      "get": {
+        "description": "Canonical desired-state export plus drift material.",
+        "operationId": "state.export",
+        "summary": "Export",
+        "tags": [
+          "state.export"
+        ]
+      }
+    },
+    "/v1/state:reset": {
+      "post": {
+        "description": "Reread the bootstrap mount, wipe the query log, and swap. Never writes the file.",
+        "operationId": "state.reset",
+        "summary": "Reset",
+        "tags": [
+          "state.reset"
+        ]
+      }
+    },
+    "/v1/state:validate": {
+      "post": {
+        "description": "Validate a candidate document and/or operations without writing.",
+        "operationId": "state.validate",
+        "summary": "Validate",
+        "tags": [
+          "state.validate"
+        ]
+      }
+    },
+    "/v1/status": {
+      "get": {
+        "description": "Listeners, revisions, hostTime, and ready.",
+        "operationId": "status.get",
+        "summary": "Agent status",
+        "tags": [
+          "status.get"
+        ]
+      }
+    },
+    "/v1/version": {
+      "get": {
+        "description": "Build and protocol versions.",
+        "operationId": "version.get",
+        "summary": "Version",
+        "tags": [
+          "version.get"
+        ]
+      }
+    },
+    "/v1/views/preview": {
+      "get": {
+        "description": "Compute served virtual time for an IP without sending NTP.",
+        "operationId": "views.preview",
+        "summary": "Preview view",
+        "tags": [
+          "views.preview"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "servers": [
+    {
+      "description": "Management listener (default address :8088)",
+      "url": "/"
+    }
+  ]
+}

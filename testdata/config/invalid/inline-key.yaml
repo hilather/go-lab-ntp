@@ -1,0 +1,15 @@
+apiVersion: labntp.dev/v1alpha1
+kind: LabNTP
+metadata:
+  name: x
+spec:
+  ntp:
+    symmetricKeys:
+      file: /run/secrets/keys
+      ascii: labdev
+  filters:
+    - name: default
+      match:
+        cidrs: ["0.0.0.0/0", "::/0"]
+      view:
+        mode: follow-real

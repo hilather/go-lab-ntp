@@ -1,0 +1,11 @@
+apiVersion: labntp.dev/v1alpha1
+kind: LabNTP
+metadata:
+  name: x
+spec:
+  filters:
+    - name: only-v6
+      match:
+        cidrs: ["::/0"]
+      view:
+        mode: follow-real

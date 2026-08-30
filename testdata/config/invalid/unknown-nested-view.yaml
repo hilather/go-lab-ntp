@@ -1,0 +1,12 @@
+apiVersion: labntp.dev/v1alpha1
+kind: LabNTP
+metadata:
+  name: x
+spec:
+  filters:
+    - name: default
+      match:
+        cidrs: ["0.0.0.0/0", "::/0"]
+      view:
+        mode: follow-real
+        epochReal: "2026-01-01T00:00:00Z"

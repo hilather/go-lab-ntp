@@ -1,0 +1,35 @@
+# Minimal Compose smoke for the hardened image.
+# Default path uses --ntp-listen=:1123 and cap_drop ALL (no NET_BIND_SERVICE).
+# Host-publish per-IP views need source-preserving UDP (userland-proxy: false
+# or macvlan); otherwise only compose-network sources and views.preview are
+# reliable (NAT collision).
+services:
+  labntp:
+    image: ghcr.io/hilather/labntp:test
+    command:
+      - serve
+      - --config=/etc/labntp/config.yaml
+      - --ntp-listen=:1123
+      - --management-listen=:8088
+    ports:
+      - "127.0.0.1:10123:1123/udp"
+      - "127.0.0.1:18123:8088/tcp"
+    volumes:
+      - "../testdata/container/config.yaml:/etc/labntp/config.yaml:ro"
+      - "../testdata/container/token:/etc/labntp/token:ro"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    user: "65532:65532"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/labntp", "healthcheck", "--url=http://127.0.0.1:8088/v1/health/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - default

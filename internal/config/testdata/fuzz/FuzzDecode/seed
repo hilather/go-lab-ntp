@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("apiVersion: labntp.dev/v1alpha1\nkind: LabNTP\n")

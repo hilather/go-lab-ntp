@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://labntp.dev/schemas/v1alpha1.json",
+  "title": "LabNTP",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "labntp.dev/v1alpha1" },
+    "kind": { "const": "LabNTP" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "labels": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "listeners": { "type": "object" },
+        "auth": { "type": "object" },
+        "ntp": { "type": "object" },
+        "filters": { "type": "array" },
+        "management": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allowedOrigins": { "type": "array", "items": { "type": "string" } },
+            "mcp": { "type": "object" },
+            "bodyLimit": {},
+            "requestsPerSecond": { "type": "integer" },
+            "burst": { "type": "integer" },
+            "maxConcurrent": { "type": "integer" }
+          }
+        },
+        "ui": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "enabled": { "type": "boolean" } }
+        },
+        "observability": { "type": "object" }
+      }
+    }
+  },
+  "$defs": {
+    "view": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "type": "string" },
+        "offset": { "type": "string" },
+        "absolute": { "type": "string" },
+        "freezeAt": { "type": "string" },
+        "rate": { "type": "number" },
+        "epoch": { "type": "string" },
+        "leap": { "type": "string" },
+        "stratum": { "type": "integer" },
+        "refid": { "type": "string" },
+        "precision": { "type": "integer" },
+        "rootDelay": { "type": "string" },
+        "rootDispersion": { "type": "string" },
+        "jitter": { "type": "string" },
+        "minpoll": { "type": "integer" },
+        "maxpoll": { "type": "integer" }
+      }
+    }
+  }
+}

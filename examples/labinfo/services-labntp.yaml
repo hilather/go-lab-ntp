@@ -1,0 +1,15 @@
+# labinfo catalog fragment. Integrator owns the live catalog; this is the BOM.
+services:
+  - id: labntp
+    title: LabNTP
+    kind: ntp
+    note: "NTPv3/v4 unicast; host publish default UDP ${LABNTP_NTP_PORT} (10123). Privileged host 123 is opt-in."
+    connection:
+      protocol: ntp-udp
+      host: ${LAB_PUBLIC_HOST}
+      port: ${LABNTP_NTP_PORT}
+      version: "4"
+      # no secret unless MAC keys are configured
+    management:
+      rest: http://${LAB_PUBLIC_HOST}:${LABNTP_REST_PORT}/v1
+      mcp: http://${LAB_PUBLIC_HOST}:${LABNTP_REST_PORT}/mcp

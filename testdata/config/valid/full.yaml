@@ -1,0 +1,72 @@
+apiVersion: labntp.dev/v1alpha1
+kind: LabNTP
+metadata:
+  name: lab-time
+spec:
+  listeners:
+    ntp:
+      address: ":123"
+    management:
+      address: ":8088"
+      restPath: /v1
+      mcpPath: /mcp
+  auth:
+    mode: bearer
+    tokens:
+      - id: admin
+        role: administrator
+        secretFile: /run/secrets/labntp-token
+  ui:
+    enabled: true
+  management:
+    allowedOrigins: []
+    mcp:
+      allowLegacyClients: true
+    bodyLimit: 1MiB
+    requestsPerSecond: 32
+    burst: 64
+    maxConcurrent: 256
+  ntp:
+    versions: [3, 4]
+    serveMode: unicast
+    nts:
+      enabled: false
+    restrict:
+      default: serve
+      kod: true
+    allowClientCidrs:
+      - "10.99.42.0/24"
+      - "127.0.0.0/8"
+      - "::1/128"
+    admission:
+      maxPacketsPerSec: 256
+      maxPacketsPerIP: 32
+    queryLog:
+      size: 256
+  filters:
+    - name: tester-a-kerberos
+      enabled: true
+      match:
+        cidrs: ["10.99.42.20/32"]
+      view:
+        mode: offset
+        offset: -6m
+        leap: none
+        stratum: 1
+        refid: LOCL
+    - name: tester-b-expired-cert
+      enabled: true
+      match:
+        cidrs: ["10.99.42.30/32"]
+      view:
+        mode: absolute
+        absolute: "2035-01-01T00:00:00Z"
+        stratum: 1
+    - name: default
+      enabled: true
+      match:
+        cidrs: ["0.0.0.0/0", "::/0"]
+      view:
+        mode: follow-real
+        stratum: 2
+        refid: GPS

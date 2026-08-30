@@ -1,0 +1,732 @@
+{
+  "apiVersion": "labntp.dev/capabilities/v1",
+  "generatedBy": "scripts/generate; DO NOT EDIT.",
+  "capabilities": [
+    {
+      "id": "health.live",
+      "title": "Health live",
+      "version": "v1",
+      "description": "Process liveness. Not an MCP tool.",
+      "mutating": false,
+      "idempotent": true,
+      "restOnly": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/health/live"
+        }
+      ],
+      "mcp": null
+    },
+    {
+      "id": "health.ready",
+      "title": "Health ready",
+      "version": "v1",
+      "description": "NTP bound, snapshot installed, and management bound or explicitly off. Not an MCP tool.",
+      "mutating": false,
+      "idempotent": true,
+      "restOnly": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/health/ready"
+        }
+      ],
+      "mcp": null
+    },
+    {
+      "id": "version.get",
+      "title": "Version",
+      "version": "v1",
+      "description": "Build and protocol versions.",
+      "outputSchema": {
+        "name": "Version"
+      },
+      "requiredScopes": [
+        "ntp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/version"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "ntp_version_get"
+        ]
+      },
+      "serviceMethods": [
+        "Version"
+      ]
+    },
+    {
+      "id": "capabilities.get",
+      "title": "Capabilities",
+      "version": "v1",
+      "description": "Capability list and protocol metadata.",
+      "outputSchema": {
+        "name": "CapabilityView"
+      },
+      "requiredScopes": [
+        "ntp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/capabilities"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "ntp_capabilities_get"
+        ],
+        "resources": [
+          "labntp://capabilities"
+        ]
+      },
+      "serviceMethods": [
+        "Capabilities"
+      ]
+    },
+    {
+      "id": "status.get",
+      "title": "Agent status",
+      "version": "v1",
+      "description": "Listeners, revisions, hostTime, and ready.",
+      "outputSchema": {
+        "name": "Status"
+      },
+      "requiredScopes": [
+        "ntp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/status"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "ntp_status_get"
+        ],
+        "resources": [
+          "labntp://status"
+        ]
+      },
+      "serviceMethods": [
+        "Status"
+      ]
+    },
+    {
+      "id": "schema.get",
+      "title": "Config schema",
+      "version": "v1",
+      "description": "Published v1alpha1 config JSON Schema.",
+      "requiredScopes": [
+        "ntp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/schema/config"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "ntp_schema_get"
+        ],
+        "resources": [
+          "labntp://schema/config"
+        ]
+      },
+      "serviceMethods": [
+        "ConfigSchema"
+      ]
+    },
+    {
+      "id": "features.list",
+      "title": "Features",
+      "version": "v1",
+      "description": "Frozen live vs reset-only catalog.",
+      "outputSchema": {
+        "name": "FeatureList"
+      },
+      "requiredScopes": [
+        "ntp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/features"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "ntp_features_list"
+        ],
+        "resources": [
+          "labntp://features"
+        ]
+      },
+      "serviceMethods": [
+        "Features"
+      ]
+    },
+    {
+      "id": "state.get",
+      "title": "Get state",
+      "version": "v1",
+      "description": "Redacted spec plus revision metadata.",
+      "outputSchema": {
+        "name": "StateView"
+      },
+      "requiredScopes": [
+        "ntp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/state"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "ntp_state_get"
+        ],
+        "resources": [
+          "labntp://state"
+        ]
+      },
+      "serviceMethods": [
+        "GetState"
+      ]
+    },
+    {
+      "id": "state.validate",
+      "title": "Validate",
+      "version": "v1",
+      "description": "Validate a candidate document and/or operations without writing.",
+      "inputSchema": {
+        "name": "ValidateIn"
+      },
+      "outputSchema": {
+        "name": "Plan"
+      },
+      "requiredScopes": [
+        "ntp.admin"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/state:validate"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "ntp_state_validate"
+        ]
+      },
+      "serviceMethods": [
+        "Validate"
+      ]
+    },
+    {
+      "id": "state.export",
+      "title": "Export",
+      "version": "v1",
+      "description": "Canonical desired-state export plus drift material.",
+      "outputSchema": {
+        "name": "Export"
+      },
+      "requiredScopes": [
+        "ntp.admin"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/state:export"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "ntp_state_export"
+        ]
+      },
+      "serviceMethods": [
+        "Export"
+      ]
+    },
+    {
+      "id": "state.reset",
+      "title": "Reset",
+      "version": "v1",
+      "description": "Reread the bootstrap mount, wipe the query log, and swap. Never writes the file.",
+      "inputSchema": {
+        "name": "ResetIn"
+      },
+      "outputSchema": {
+        "name": "ApplyResult"
+      },
+      "requiredScopes": [
+        "ntp.admin"
+      ],
+      "mutating": true,
+      "idempotent": false,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/state:reset"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "ntp_state_reset"
+        ]
+      },
+      "serviceMethods": [
+        "Reset"
+      ]
+    },
+    {
+      "id": "changes.plan",
+      "title": "Plan",
+      "version": "v1",
+      "description": "Dry-run operations against the active snapshot.",
+      "inputSchema": {
+        "name": "ChangeIn"
+      },
+      "outputSchema": {
+        "name": "Plan"
+      },
+      "requiredScopes": [
+        "ntp.admin"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/changes:plan"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "ntp_change_plan"
+        ]
+      },
+      "serviceMethods": [
+        "Plan"
+      ]
+    },
+    {
+      "id": "changes.apply",
+      "title": "Apply",
+      "version": "v1",
+      "description": "Apply operations. expectedRevision is required.",
+      "inputSchema": {
+        "name": "ChangeIn"
+      },
+      "outputSchema": {
+        "name": "ApplyResult"
+      },
+      "requiredScopes": [
+        "ntp.admin"
+      ],
+      "mutating": true,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/changes:apply"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "ntp_change_apply"
+        ]
+      },
+      "serviceMethods": [
+        "Apply"
+      ]
+    },
+    {
+      "id": "session.create",
+      "title": "Create session",
+      "version": "v1",
+      "description": "Cookie + CSRF session for the operator UI. Accepts bearer.",
+      "mutating": true,
+      "idempotent": false,
+      "restOnly": true,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/session"
+        }
+      ],
+      "mcp": null
+    },
+    {
+      "id": "session.get",
+      "title": "Get session",
+      "version": "v1",
+      "description": "Current session principal (cookie or bearer). Cookie path returns CSRF for reload recovery.",
+      "mutating": false,
+      "idempotent": true,
+      "restOnly": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/session"
+        }
+      ],
+      "mcp": null
+    },
+    {
+      "id": "session.delete",
+      "title": "Delete session",
+      "version": "v1",
+      "description": "Clear the operator UI session cookie.",
+      "mutating": true,
+      "idempotent": true,
+      "restOnly": true,
+      "rest": [
+        {
+          "method": "DELETE",
+          "path": "/v1/session"
+        }
+      ],
+      "mcp": null
+    },
+    {
+      "id": "filters.list",
+      "title": "List filters",
+      "version": "v1",
+      "description": "List first-match filters in document order.",
+      "outputSchema": {
+        "name": "FilterList"
+      },
+      "requiredScopes": [
+        "ntp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/filters"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "ntp_filters_list"
+        ],
+        "resources": [
+          "labntp://filters"
+        ]
+      },
+      "serviceMethods": [
+        "ListFilters"
+      ]
+    },
+    {
+      "id": "filters.get",
+      "title": "Get filter",
+      "version": "v1",
+      "description": "Get one filter by name.",
+      "outputSchema": {
+        "name": "Filter"
+      },
+      "requiredScopes": [
+        "ntp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/filters/{name}"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "ntp_filters_get"
+        ]
+      },
+      "serviceMethods": [
+        "GetFilter"
+      ]
+    },
+    {
+      "id": "filters.put",
+      "title": "Put filter",
+      "version": "v1",
+      "description": "Upsert a filter by name. Goes through the same compile+swap as Apply.",
+      "inputSchema": {
+        "name": "PutFilterIn"
+      },
+      "outputSchema": {
+        "name": "ApplyResult"
+      },
+      "requiredScopes": [
+        "ntp.write"
+      ],
+      "mutating": true,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "PUT",
+          "path": "/v1/filters/{name}"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "ntp_filters_put"
+        ]
+      },
+      "serviceMethods": [
+        "PutFilter"
+      ]
+    },
+    {
+      "id": "filters.delete",
+      "title": "Delete filter",
+      "version": "v1",
+      "description": "Remove a filter by name. Catch-all remains required.",
+      "requiredScopes": [
+        "ntp.write"
+      ],
+      "mutating": true,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "DELETE",
+          "path": "/v1/filters/{name}"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "ntp_filters_delete"
+        ]
+      },
+      "serviceMethods": [
+        "DeleteFilter"
+      ]
+    },
+    {
+      "id": "views.preview",
+      "title": "Preview view",
+      "version": "v1",
+      "description": "Compute served virtual time for an IP without sending NTP.",
+      "outputSchema": {
+        "name": "Preview"
+      },
+      "requiredScopes": [
+        "ntp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/views/preview"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "ntp_views_preview"
+        ]
+      },
+      "serviceMethods": [
+        "Preview"
+      ]
+    },
+    {
+      "id": "queries.list",
+      "title": "Query log",
+      "version": "v1",
+      "description": "Last-N NTP query ring (authenticated). Reset wipes it.",
+      "outputSchema": {
+        "name": "QueryList"
+      },
+      "requiredScopes": [
+        "ntp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/queries"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "ntp_queries_list"
+        ]
+      },
+      "serviceMethods": [
+        "ListQueries"
+      ]
+    },
+    {
+      "id": "audit.list",
+      "title": "Audit list",
+      "version": "v1",
+      "description": "Query recent in-memory audit events.",
+      "inputSchema": {
+        "name": "AuditQuery"
+      },
+      "outputSchema": {
+        "name": "AuditList"
+      },
+      "requiredScopes": [
+        "ntp.audit.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/audit"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "ntp_audit_list"
+        ],
+        "resources": [
+          "labntp://audit/recent"
+        ]
+      },
+      "serviceMethods": [
+        "QueryAudit"
+      ]
+    },
+    {
+      "id": "audit.get",
+      "title": "Audit get",
+      "version": "v1",
+      "description": "Get one audit event by ID.",
+      "outputSchema": {
+        "name": "AuditEvent"
+      },
+      "requiredScopes": [
+        "ntp.audit.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/audit/{eventId}"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "ntp_audit_get"
+        ]
+      },
+      "serviceMethods": [
+        "GetAudit"
+      ]
+    },
+    {
+      "id": "metrics.get",
+      "title": "Metrics",
+      "version": "v1",
+      "description": "OpenMetrics text. Served only when observability.metrics.publicPath is true.",
+      "requiredScopes": [
+        "ntp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "restOnly": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/metrics"
+        }
+      ],
+      "mcp": null
+    }
+  ],
+  "features": [
+    {
+      "id": "filters",
+      "apply": "live",
+      "path": "spec.filters"
+    },
+    {
+      "id": "views",
+      "apply": "live",
+      "path": "spec.filters[].view"
+    },
+    {
+      "id": "restrict",
+      "apply": "live",
+      "path": "spec.ntp.restrict"
+    },
+    {
+      "id": "admission",
+      "apply": "live",
+      "path": "spec.ntp.admission"
+    },
+    {
+      "id": "allowClientCidrs",
+      "apply": "live",
+      "path": "spec.ntp.allowClientCidrs"
+    },
+    {
+      "id": "queryLog",
+      "apply": "live",
+      "path": "spec.ntp.queryLog"
+    },
+    {
+      "id": "management.http",
+      "apply": "live",
+      "path": "spec.management.bodyLimit|requestsPerSecond|burst|maxConcurrent"
+    },
+    {
+      "id": "listeners.ntp.address",
+      "apply": "reset-only",
+      "path": "spec.listeners.ntp.address"
+    },
+    {
+      "id": "listeners.management.address",
+      "apply": "reset-only",
+      "path": "spec.listeners.management.address"
+    },
+    {
+      "id": "ntp.nts",
+      "apply": "reset-only",
+      "path": "spec.ntp.nts"
+    },
+    {
+      "id": "ntp.symmetricKeys",
+      "apply": "reset-only",
+      "path": "spec.ntp.symmetricKeys"
+    },
+    {
+      "id": "auth",
+      "apply": "reset-only",
+      "path": "spec.auth"
+    }
+  ]
+}

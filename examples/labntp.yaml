@@ -1,0 +1,70 @@
+# Lab overlay BOM for mcp-integration-lab. Do not recopy testdata/config/valid/full.yaml
+# blindly: the lab overlay has one default follow-real filter; tester filters stay
+# commented. allowClientCidrs is the lab subnet plus loopback.
+apiVersion: labntp.dev/v1alpha1
+kind: LabNTP
+metadata:
+  name: lab-time
+spec:
+  listeners:
+    ntp:
+      address: ":123" # container; host map is LABNTP_NTP_PORT (default 10123)
+    management:
+      address: ":8088"
+      restPath: /v1
+      mcpPath: /mcp
+  auth:
+    mode: bearer
+    tokens:
+      - id: admin
+        role: administrator
+        secretFile: /run/secrets/labntp-token
+  ui:
+    enabled: true
+  management:
+    allowedOrigins: []
+    mcp:
+      allowLegacyClients: true # MCPJungle (mark3labs/mcp-go) without a LabNTP patch
+    bodyLimit: 1MiB
+    requestsPerSecond: 32
+    burst: 64
+    maxConcurrent: 256
+  ntp:
+    versions: [3, 4]
+    serveMode: unicast
+    nts:
+      enabled: false
+    restrict:
+      default: serve
+      kod: true
+    # Overlay MUST set this. Omitted materializes universal allow + warning.
+    allowClientCidrs:
+      - "10.99.42.0/24"
+      - "127.0.0.0/8"
+      - "::1/128"
+    admission:
+      maxPacketsPerSec: 256
+      maxPacketsPerIP: 32
+    queryLog:
+      size: 256
+  filters:
+    # Tester-specific views. Uncomment and set SUT / tester source IPs.
+    # Two testers with the same egress IP share a view (NAT collision).
+    # - name: tester-a-kerberos
+    #   enabled: true
+    #   match:
+    #     cidrs: ["10.99.42.20/32"]
+    #   view:
+    #     mode: offset
+    #     offset: -6m
+    #     leap: none
+    #     stratum: 1
+    #     refid: LOCL
+    - name: default
+      enabled: true
+      match:
+        cidrs: ["0.0.0.0/0", "::/0"]
+      view:
+        mode: follow-real
+        stratum: 2
+        refid: GPS

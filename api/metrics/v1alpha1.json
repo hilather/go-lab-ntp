@@ -1,0 +1,202 @@
+{
+  "id": "labntp.dev/metrics/v1alpha1",
+  "version": "v1alpha1",
+  "allowedLabels": [
+    "capability",
+    "code_class",
+    "component",
+    "decision",
+    "event",
+    "filter",
+    "reason",
+    "result",
+    "tool",
+    "version"
+  ],
+  "forbiddenLabels": [
+    "actor",
+    "actor_id",
+    "address",
+    "authorization",
+    "body",
+    "client",
+    "client_ip",
+    "cookie",
+    "data",
+    "detail",
+    "err",
+    "error",
+    "error_text",
+    "from",
+    "host",
+    "idempotency",
+    "idempotency_key",
+    "message",
+    "password",
+    "peer",
+    "raw",
+    "remote_addr",
+    "set_cookie",
+    "source_ip",
+    "src",
+    "src_ip",
+    "subject",
+    "to"
+  ],
+  "metrics": [
+    {
+      "name": "labntp_apply_total",
+      "kind": "counter",
+      "help": "Plan/apply/reset commits.",
+      "labels": [
+        "result"
+      ]
+    },
+    {
+      "name": "labntp_auth_failures_total",
+      "kind": "counter",
+      "help": "Management authentication failures.",
+      "labels": null
+    },
+    {
+      "name": "labntp_filter_hits_total",
+      "kind": "counter",
+      "help": "Packets answered by first-match filter name (cardinality capped).",
+      "labels": [
+        "filter"
+      ]
+    },
+    {
+      "name": "labntp_http_requests_total",
+      "kind": "counter",
+      "help": "Management HTTP requests.",
+      "labels": [
+        "capability",
+        "code_class"
+      ]
+    },
+    {
+      "name": "labntp_mcp_calls_total",
+      "kind": "counter",
+      "help": "MCP tool invocations.",
+      "labels": [
+        "capability"
+      ]
+    },
+    {
+      "name": "labntp_packets_total",
+      "kind": "counter",
+      "help": "NTP packets by version and decision.",
+      "labels": [
+        "decision",
+        "version"
+      ]
+    },
+    {
+      "name": "labntp_querylog_dropped_total",
+      "kind": "counter",
+      "help": "Query-log samples dropped because the ring lock was busy.",
+      "labels": null
+    },
+    {
+      "name": "labntp_telemetry_dropped_total",
+      "kind": "counter",
+      "help": "Telemetry samples dropped under policy or cardinality.",
+      "labels": [
+        "reason"
+      ]
+    },
+    {
+      "name": "labntp_udp_inflight",
+      "kind": "gauge",
+      "help": "In-flight NTP packet handlers.",
+      "labels": null
+    }
+  ],
+  "events": [
+    {
+      "name": "auth.failure",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms"
+      ]
+    },
+    {
+      "name": "http.request",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms"
+      ]
+    },
+    {
+      "name": "mcp.call",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms"
+      ]
+    },
+    {
+      "name": "ntp.query",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms"
+      ]
+    },
+    {
+      "name": "state.apply",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms"
+      ]
+    },
+    {
+      "name": "state.reset",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms"
+      ]
+    }
+  ]
+}

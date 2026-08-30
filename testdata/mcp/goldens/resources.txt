@@ -1,0 +1,7 @@
+labntp://capabilities
+labntp://status
+labntp://schema/config
+labntp://features
+labntp://state
+labntp://filters
+labntp://audit/recent

@@ -1,0 +1,53 @@
+apiVersion: labntp.dev/v1alpha1
+kind: LabNTP
+metadata:
+  name: container-smoke
+spec:
+  listeners:
+    ntp:
+      address: ":123"
+    management:
+      address: ":8088"
+      restPath: /v1
+      mcpPath: /mcp
+  auth:
+    mode: bearer
+    tokens:
+      - id: smoke
+        role: administrator
+        secretFile: /etc/labntp/token
+  ui:
+    enabled: false
+  management:
+    allowedOrigins: []
+    mcp:
+      allowLegacyClients: true
+    bodyLimit: 1MiB
+    requestsPerSecond: 32
+    burst: 64
+    maxConcurrent: 256
+  ntp:
+    versions: [3, 4]
+    serveMode: unicast
+    nts:
+      enabled: false
+    restrict:
+      default: serve
+      kod: true
+    allowClientCidrs:
+      - "0.0.0.0/0"
+      - "::/0"
+    admission:
+      maxPacketsPerSec: 256
+      maxPacketsPerIP: 32
+    queryLog:
+      size: 64
+  filters:
+    - name: default
+      enabled: true
+      match:
+        cidrs: ["0.0.0.0/0", "::/0"]
+      view:
+        mode: follow-real
+        stratum: 2
+        refid: GPS

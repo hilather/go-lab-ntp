@@ -1,0 +1,19 @@
+apiVersion: labntp.dev/v1alpha1
+kind: LabNTP
+metadata:
+  name: freeze
+spec:
+  filters:
+    - name: stopped
+      match:
+        cidrs: ["10.0.0.2/32"]
+      view:
+        mode: freeze
+        freezeAt: "2020-01-01T00:00:00Z"
+        stratum: 1
+        refid: LOCL
+    - name: default
+      match:
+        cidrs: ["0.0.0.0/0", "::/0"]
+      view:
+        mode: follow-real

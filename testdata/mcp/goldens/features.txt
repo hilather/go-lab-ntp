@@ -1,0 +1,12 @@
+filters
+views
+restrict
+admission
+allowClientCidrs
+queryLog
+management.http
+listeners.ntp.address
+listeners.management.address
+ntp.nts
+ntp.symmetricKeys
+auth
