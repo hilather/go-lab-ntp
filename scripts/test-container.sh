@@ -169,25 +169,17 @@ if ! printf '%s\n' "${preview}" | grep -q '"mode":"follow-real"'; then
 	exit 1
 fi
 
-python3 - "${ntp_port}" <<'PY'
-import socket
-import sys
-
-port = int(sys.argv[1])
-pkt = bytearray(48)
-pkt[0] = 0x23  # LI=0 VN=4 Mode=3
-s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-s.settimeout(2)
-s.sendto(pkt, ("127.0.0.1", port))
-data, _ = s.recvfrom(576)
-if len(data) < 48:
-    raise SystemExit(f"short NTP reply {len(data)}")
-li_vn_mode = data[0]
-if (li_vn_mode & 0x07) != 4:
-    raise SystemExit(f"mode={li_vn_mode & 0x07} want 4")
-if data[1] != 2:
-    raise SystemExit(f"stratum={data[1]} want 2")
-PY
+# Query from inside the container. Host-published UDP is the userland-proxy
+# NAT-collision path and is not a reliable smoke on GitHub-hosted Docker.
+query_out="$(docker exec "${NAME}" /labntp query --server 127.0.0.1:1123)"
+if ! printf '%s\n' "${query_out}" | grep -q 'stratum=2'; then
+	echo "in-container NTP query missing stratum=2: ${query_out}" >&2
+	exit 1
+fi
+if ! printf '%s\n' "${query_out}" | grep -q 'refid="GPS"'; then
+	echo "in-container NTP query missing refid GPS: ${query_out}" >&2
+	exit 1
+fi
 
 echo "container contract ok image=${IMAGE}"
 
