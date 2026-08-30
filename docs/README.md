@@ -30,9 +30,11 @@ This page is the catalog. Normative design documents win over task summaries.
 | [08-security-architecture.md](08-security-architecture.md) | bearer, CSRF, allowlist |
 | [09-observability.md](09-observability.md) | metrics, health, query ring |
 | [11-deployment.md](11-deployment.md) | scratch image, ports, NET_BIND_SERVICE |
+| [12-web-ui.md](12-web-ui.md) | operator SPA, cookie/CSRF, committed dist |
 | [13-integration-lab.md](13-integration-lab.md) | overlay BOM for mcp-integration-lab |
 | [implementation-design.md](implementation-design.md) | Implementation design (source of truth until ADRs amend it) |
 | [releases/v1.0.0-rc.1.md](releases/v1.0.0-rc.1.md) | First public candidate notes |
+| [releases/v1.0.0-rc.2.md](releases/v1.0.0-rc.2.md) | SPA + GHCR candidate notes |
 
 ## ADRs
 

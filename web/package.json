@@ -1,0 +1,36 @@
+{
+  "name": "labntp-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "packageManager": "npm@10.9.2",
+  "engines": {
+    "node": ">=22.14.0 <23",
+    "npm": ">=10.9.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit -p tsconfig.json && vite build && node ./scripts/check-bundle.mjs",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json --pretty false",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-router-dom": "^7.8.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^6.0.5",
+    "jsdom": "^30.0.1",
+    "typescript": "~5.9.2",
+    "vite": "^8.2.1",
+    "vitest": "^4.1.10"
+  }
+}

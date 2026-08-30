@@ -28,6 +28,9 @@ func TestNoMCPImport(t *testing.T) {
 			if strings.Contains(path, "internal/control/mcp") {
 				t.Errorf("%s imports MCP %s", name, path)
 			}
+			if path == "github.com/hilather/go-lab-ntp/internal/web" || strings.HasPrefix(path, "github.com/hilather/go-lab-ntp/internal/web/") {
+				t.Errorf("%s production file imports internal/web %s", name, path)
+			}
 		}
 	}
 }

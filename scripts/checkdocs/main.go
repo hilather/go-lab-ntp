@@ -32,6 +32,7 @@ var RequiredRootDocs = []string{
 	"docs/08-security-architecture.md",
 	"docs/09-observability.md",
 	"docs/11-deployment.md",
+	"docs/12-web-ui.md",
 	"docs/13-integration-lab.md",
 	"docs/implementation-design.md",
 	"docs/adr/0001-use-go.md",
@@ -51,6 +52,7 @@ var RequiredRootDocs = []string{
 	"tasks/00-program-board.md",
 	"tasks/README.md",
 	".github/workflows/ci.yml",
+	".github/workflows/release.yml",
 }
 
 // RequiredPhrases must appear in docs/ (NAT / userland-proxy / host-clock invariant).

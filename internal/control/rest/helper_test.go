@@ -54,9 +54,28 @@ func bootTestApp(t *testing.T) *app.App {
 	return svc
 }
 
+func bootYAMLApp(t *testing.T, yamlBody string) *app.App {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "labntp.yaml")
+	if err := os.WriteFile(path, []byte(yamlBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc, err := app.Boot(context.Background(), app.Options{BootstrapPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.Close)
+	return svc
+}
+
 func newTestServer(t *testing.T) (*Server, *app.App) {
 	t.Helper()
 	svc := bootTestApp(t)
+	return newServerFor(t, svc)
+}
+
+func newServerFor(t *testing.T, svc *app.App) (*Server, *app.App) {
+	t.Helper()
 	s, err := New(Config{
 		Service:    svc,
 		RatePerSec: -1,

@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -131,5 +132,135 @@ func TestProblemJSONCode(t *testing.T) {
 	p := capabilities.ProblemFrom(domainerr.ValidationFailed("x"), "urn:labntp:request:1")
 	if p.Status != 400 || p.Code != domainerr.CodeValidationFailed {
 		t.Fatalf("%+v", p)
+	}
+}
+
+func TestFilterPutRoundTripDurationStrings(t *testing.T) {
+	svc := bootYAMLApp(t, `apiVersion: labntp.dev/v1alpha1
+kind: LabNTP
+metadata:
+  name: two-filters
+spec:
+  filters:
+    - name: tester
+      enabled: true
+      match:
+        cidrs: ["10.99.42.20/32"]
+      view:
+        mode: follow-real
+    - name: default
+      enabled: true
+      match:
+        cidrs: ["0.0.0.0/0", "::/0"]
+      view:
+        mode: follow-real
+`)
+	s, _ := newServerFor(t, svc)
+
+	list := doJSON(t, s, http.MethodGet, "/v1/filters", "")
+	if list.StatusCode != http.StatusOK {
+		t.Fatalf("GET /v1/filters %d", list.StatusCode)
+	}
+	listed := decodeMap(t, list)
+	items, _ := listed["items"].([]any)
+	if len(items) == 0 {
+		t.Fatal("no filters")
+	}
+	var follow map[string]any
+	for _, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		view, _ := item["view"].(map[string]any)
+		if view["mode"] == "follow-real" && item["name"] == "tester" {
+			follow = item
+			break
+		}
+	}
+	if follow == nil {
+		t.Fatal("no follow-real filter")
+	}
+	view, _ := follow["view"].(map[string]any)
+	if view["offset"] != "0s" {
+		t.Fatalf("GET offset=%v want 0s string", view["offset"])
+	}
+
+	st := doJSON(t, s, http.MethodGet, "/v1/state", "")
+	if st.StatusCode != http.StatusOK {
+		t.Fatalf("GET /v1/state %d", st.StatusCode)
+	}
+	state := decodeMap(t, st)
+	rev, _ := state["runtimeRevision"].(string)
+	if rev == "" {
+		t.Fatal("missing runtimeRevision")
+	}
+
+	enabled, _ := follow["enabled"].(bool)
+	follow["enabled"] = !enabled
+	name, _ := follow["name"].(string)
+	putBody, err := json.Marshal(map[string]any{
+		"expectedRevision": rev,
+		"reason":           "ui: disable filter",
+		"filter":           follow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	put := doJSON(t, s, http.MethodPut, "/v1/filters/"+name, string(putBody))
+	if put.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(put.Body)
+		t.Fatalf("PUT duration strings %d %s", put.StatusCode, b)
+	}
+	_ = put.Body.Close()
+
+	numeric := map[string]any{
+		"expectedRevision": rev,
+		"reason":           "ui: numeric offset",
+		"filter": map[string]any{
+			"name":    name,
+			"enabled": enabled,
+			"match":   follow["match"],
+			"view": map[string]any{
+				"mode":           "follow-real",
+				"offset":         0,
+				"leap":           view["leap"],
+				"stratum":        view["stratum"],
+				"refid":          view["refid"],
+				"precision":      view["precision"],
+				"rootDelay":      "0s",
+				"rootDispersion": "0s",
+				"jitter":         "0s",
+			},
+		},
+	}
+	numBody, err := json.Marshal(numeric)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := doJSON(t, s, http.MethodPut, "/v1/filters/"+name, string(numBody))
+	if bad.StatusCode != http.StatusBadRequest {
+		b, _ := io.ReadAll(bad.Body)
+		t.Fatalf("PUT numeric offset want 400 got %d %s", bad.StatusCode, b)
+	}
+	_ = bad.Body.Close()
+}
+
+func TestStatusRevisionsArePascalCase(t *testing.T) {
+	s, _ := newTestServer(t)
+	resp := doJSON(t, s, http.MethodGet, "/v1/status", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /v1/status %d", resp.StatusCode)
+	}
+	m := decodeMap(t, resp)
+	rev, ok := m["revisions"].(map[string]any)
+	if !ok {
+		t.Fatalf("revisions type %T", m["revisions"])
+	}
+	if _, ok := rev["BootstrapRevision"]; !ok {
+		t.Fatalf("status.revisions missing BootstrapRevision: %v", rev)
+	}
+	if _, ok := rev["runtimeRevision"]; ok {
+		t.Fatalf("status.revisions unexpectedly camelCase runtimeRevision: %v", rev)
 	}
 }

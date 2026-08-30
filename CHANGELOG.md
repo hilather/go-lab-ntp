@@ -20,6 +20,35 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 - None.
 
+## 1.0.0-rc.2 - 2026-08-30
+
+Operator SPA and tag-triggered GHCR. Notes: [docs/releases/v1.0.0-rc.2.md](docs/releases/v1.0.0-rc.2.md).
+
+### Added
+
+- Operator SPA (Vite + React) at `/` when `spec.ui.enabled` is true: filter
+  table enable/disable, preview-an-IP, features live vs reset-only, query
+  ring, status, gated Reset. Cookie `labntp_session` + CSRF `X-LabNTP-CSRF`;
+  no localStorage tokens. `spec.ui.enabled: false` keeps `GET /` as 404
+  problem+json. `make web-install web-test web-build web-embed` and CI job
+  `web` (Node 22.14.0). Committed `internal/web/dist` is the embed
+  (`docs/12-web-ui.md`).
+- Tag-triggered GHCR publish (`ghcr.io/hilather/labntp:<tag>` and `sha-<7 hex>`,
+  no `:latest` on rc). `.github/workflows/release.yml` tag-gate then
+  `publish-image` on `v*` tag push only.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Removed or deprecated
+
+- None.
+
 ## 1.0.0-rc.1 - 2026-08-30
 
 First public candidate. Notes: [docs/releases/v1.0.0-rc.1.md](docs/releases/v1.0.0-rc.1.md). Operator SPA is not in this tag.

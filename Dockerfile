@@ -1,6 +1,7 @@
 # LabNTP production image: ghcr.io/hilather/labntp
 #
 # Multi-stage, static binary, numeric non-root UID, no shell.
+# No Node stage — UI-001 embeds dist/ on the host.
 # Run with a read-only root filesystem. Compose restores only
 # NET_BIND_SERVICE so bind-to-123 works. Default make test-container
 # (later) uses --ntp-listen=:1123 and cap_drop ALL.

@@ -137,6 +137,23 @@ if [ "${ok}" -ne 1 ]; then
 	exit 1
 fi
 
+ui_code="$(curl -sS -D /tmp/labntp-ui.hdr -o /tmp/labntp-ui.body -w '%{http_code}' "http://127.0.0.1:${mgmt_port}/" || true)"
+if [ "${ui_code}" != "404" ]; then
+	echo "GET / status=${ui_code}, want 404 (ui.enabled: false)" >&2
+	cat /tmp/labntp-ui.hdr >&2 || true
+	cat /tmp/labntp-ui.body >&2 || true
+	exit 1
+fi
+if ! grep -qi 'content-type:.*application/problem+json' /tmp/labntp-ui.hdr; then
+	echo "GET / content-type is not application/problem+json" >&2
+	cat /tmp/labntp-ui.hdr >&2 || true
+	exit 1
+fi
+if ! curl -fsS "http://127.0.0.1:${mgmt_port}/v1/health/ready" >/dev/null; then
+	echo "GET /v1/health/ready failed after SPA-disabled 404" >&2
+	exit 1
+fi
+
 if ! docker exec "${NAME}" /labntp version >/dev/null; then
 	echo "non-root exec of /labntp version failed" >&2
 	exit 1

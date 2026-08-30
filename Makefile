@@ -29,10 +29,10 @@ help:
 		'  security-scan       govulncheck' \
 		'  test-parity         REST/MCP capability parity goldens' \
 		'  test-config-compat  positive+negative v1alpha1 config fixtures' \
-		'  web-install         npm ci in web/ (not implemented)' \
-		'  web-test            Vitest SPA tests (not implemented)' \
-		'  web-build           production Vite build (not implemented)' \
-		'  web-embed           copy web/dist into internal/web/dist (not implemented)' \
+		'  web-install         npm ci in web/ (Node 22.14.0)' \
+		'  web-test            Vitest operator SPA tests' \
+		'  web-build           production Vite build + copy into internal/web/dist' \
+		'  web-embed           copy web/dist into internal/web/dist' \
 		'  test-container      build image and check non-root/read-only/no-caps (:1123; gated :123)' \
 		'  test-changelog      observable paths require a CHANGELOG.md entry'
 
@@ -81,16 +81,20 @@ test-config-compat:
 	$(GO) test ./internal/config -run TestConfigCompat -count=1
 
 web-install:
-	@echo 'web-install: not implemented (PR 13)' >&2; exit 1
+	npm --prefix web ci
 
 web-test:
-	@echo 'web-test: not implemented (PR 13)' >&2; exit 1
+	npm --prefix web test
 
 web-build:
-	@echo 'web-build: not implemented (PR 13)' >&2; exit 1
+	npm --prefix web run build
+	$(MAKE) web-embed
 
 web-embed:
-	@echo 'web-embed: not implemented (PR 13)' >&2; exit 1
+	@mkdir -p internal/web/dist
+	@rm -rf internal/web/dist/assets
+	@if [ -d web/dist ]; then cp -a web/dist/. internal/web/dist/; fi
+	@echo "copied web/dist -> internal/web/dist"
 
 test-container:
 	bash scripts/test-container.sh

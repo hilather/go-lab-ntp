@@ -1,6 +1,6 @@
 # Program Board
 
-Status: in progress (PRs 1–12 in this working tree; SPA remaining)
+Status: SPA + GHCR workflow in tree; next is commit/push then v1.0.0-rc.2
 Last reviewed: 2026-08-30
 
 ## Work packages
@@ -19,11 +19,13 @@ Last reviewed: 2026-08-30
 | 9 | MCP `/mcp` | MCP-001 | API-001, SEC-001 | `ntp_*` tools | done (this slice) |
 | 11 | Observability | OBS-001 | NTP-001, API-001 | metrics, logs, health | done (this slice) |
 | 12 | CLI, container, examples BOM | DEP-001 | NTP-001, SEC-001, OBS-001 | image + overlay | done (this slice) |
-| 13 | Operator SPA | UI-001 | API-001, SEC-001, DEP-001 | Mira reviews | pending |
+| 13 | Operator SPA | UI-001 | API-001, SEC-001, DEP-001 | Mira reviews | done (this slice) |
+| 14 | GHCR publish | REL-001 | UI-001 | tag-gate + `ghcr.io/hilather/labntp` | done (this slice) |
 
 Control-plane order is **8 → 10 → 9** so `POST /mcp` never lands without a bearer verifier.
 
 ## This slice
 
-`make test lint test-docs test-parity test-config-compat` must pass.
-`make test-container` requires Docker. `web-*` remains fail-closed until PR 13.
+`make test lint test-docs test-parity test-config-compat web-test` must pass.
+`make test-container` requires Docker. `make web-install web-test web-build`
+is implemented. `.github/workflows/release.yml` tag-gates and publishes on `v*` tag push.

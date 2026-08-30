@@ -17,7 +17,7 @@ and it never calls `settimeofday` / `clock_settime` / `adjtimex`.
 | Image | `ghcr.io/hilather/labntp` (`:local` for compose builds) |
 | Config | `labntp.dev/v1alpha1` / kind `LabNTP` |
 | Data plane | UDP NTPv3/v4 unicast (container `:123`, host publish default **10123**) |
-| Management | REST `/v1` + MCP `/mcp` (SPA `/` later) |
+| Management | REST `/v1` + MCP `/mcp` + SPA `/` (when `spec.ui.enabled`) |
 | License | Apache-2.0 |
 
 ## What exists today
@@ -29,10 +29,11 @@ and it never calls `settimeofday` / `clock_settime` / `adjtimex`.
 - `labntp serve --config … --ntp-listen=:1123 --management-listen=off`.
 - `labntp query --server 127.0.0.1:1123` SNTP smoke client (never used by the server).
 - REST `/v1` + MCP `/mcp` (`ntp_*` tools) when `--management-listen` is an address. Bearer required. `labntp healthcheck`.
+- Operator SPA at `/` when `spec.ui.enabled: true` (cookie `labntp_session` + `X-LabNTP-CSRF`; no localStorage tokens). `spec.ui.enabled: false` → `GET /` is 404 problem+json.
 
-SPA is later (PR 13; Mira reviews). `--management-listen` defaults **off**.
-The image CMD passes `:8088` so HEALTHCHECK against `/v1/health/ready` works.
-Overlay BOM lives under `examples/` (`docs/13-integration-lab.md`).
+`--management-listen` defaults **off**. The image CMD passes `:8088` so
+HEALTHCHECK against `/v1/health/ready` works. Overlay BOM lives under
+`examples/` (`docs/13-integration-lab.md`). SPA details: [docs/12-web-ui.md](docs/12-web-ui.md).
 
 ## Quick start
 
@@ -66,7 +67,9 @@ Catalog: [docs/README.md](docs/README.md). Implementation design:
 
 ## Build and test
 
-Go **1.26**. `make format lint test test-docs test-config-compat test-parity`.
+Go **1.26**. Node **22.14.0** for `web/`.
+`make format lint test test-docs test-config-compat test-parity`.
 `make test-container` requires Docker (default `:1123` + `cap_drop ALL`; gated
-`LABNTP_TEST_NET_BIND=1` for `:123`). `web-*` is not implemented (PR 13) and
-**exits 1**.
+`LABNTP_TEST_NET_BIND=1` for `:123`). `make web-install web-test web-build`
+builds the operator SPA. Local Vite: `npm --prefix web run dev` (proxies
+`/v1` to `127.0.0.1:8088`).

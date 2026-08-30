@@ -30,7 +30,7 @@ sets the host clock and never queries an NTP pool.
 | Kind | `LabNTP` |
 | Native REST | `/v1` |
 | MCP | `POST /mcp` |
-| UI | `/` (later PR) |
+| UI | `/` (embedded operator SPA when `spec.ui.enabled`) |
 | Default NTP bind | container `:123` (local escape `--ntp-listen=:1123`) |
 | Default management bind | flag default **off**; image CMD `:8088` |
 | Host publish default | `10123/udp` |
@@ -65,7 +65,10 @@ SUT UDP/123  -->  ntpserver  -->  ntpwire  -->  first-match filter  -->  ntpview
 ```
 
 Management REST/MCP compile a candidate spec and Swap the snapshot.
-In-flight packets keep the Snapshot they loaded. SPA lands later.
+In-flight packets keep the Snapshot they loaded. The operator SPA is
+served from the management HTTP server when `spec.ui.enabled` is true
+(`cmd/labntp` wires `rest.Config.UI`; production `internal/control/rest`
+must not import `internal/web`).
 
 ## Package layout
 
@@ -86,8 +89,9 @@ In-flight packets keep the Snapshot they loaded. SPA lands later.
 | `internal/audit` | mutation ring |
 | `internal/auth` | bearer + cookie CSRF |
 | `internal/capabilities` | frozen REST↔MCP table |
-| `internal/control/rest` | `/v1` adapter |
+| `internal/control/rest` | `/v1` adapter (must not import `internal/web`) |
 | `internal/control/mcp` | `/mcp` adapter |
+| `internal/web` | `go:embed` operator SPA |
 | `internal/observability` | slog JSON, OpenMetrics |
 | `internal/testutil` | fake clock |
 
@@ -102,7 +106,13 @@ UID 65532 vs port 123: bind `:123` returns `EACCES` without
 `CAP_NET_BIND_SERVICE`. Image stays non-root. Compose restores only that cap.
 Local `go run` uses `--ntp-listen=:1123`. Unit tests bind ephemeral ports.
 
+## Import fence
+
+Production `internal/control/rest` must not import `internal/web`.
+`cmd/labntp/serve.go` sets `rest.Config.UI = web.NewHandler(nil)` and
+`UIEnabled` from the live snapshot. REST tests may import `web`.
+
 ## What is not in this slice
 
-SPA, container smoke/examples BOM, and the integrator compose pin land in
-PRs 12–13. Documentation must not claim those surfaces exist until they do.
+The integrator compose pin stays out of repo (PR 14 / later). Documentation
+must not claim GHCR publish or Helm vendor pin until they exist.

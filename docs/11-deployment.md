@@ -15,7 +15,22 @@ Docker must pass `NET_BIND_SERVICE` as an **ambient** capability to a non-root p
 - `ghcr.io/hilather/labntp` / `labntp:local`
 - HEALTHCHECK exec form: `/labntp healthcheck --url=http://127.0.0.1:8088/v1/health/ready`
 - CMD binds `--management-listen=:8088` so HEALTHCHECK works (`--management-listen` still defaults **off** in the binary)
-- No shell. No Node stage.
+- No shell. No Node stage. The operator SPA is `go:embed` of the committed
+  `internal/web/dist` Vite tree (`docs/12-web-ui.md`).
+
+## GHCR
+
+Tag-triggered workflow [`.github/workflows/release.yml`](../.github/workflows/release.yml):
+
+- Tags: `ghcr.io/hilather/labntp:<git-tag>` and `ghcr.io/hilather/labntp:sha-<7 hex>`.
+- No `:latest` on prerelease (`v*-rc*`).
+- Platform `linux/amd64`. Provenance + SBOM on.
+- **Digest is the integrator pin**, not the `sha-*` tag.
+- `workflow_dispatch` re-gates only; it does not push GHCR.
+
+First push may create a private package. A human may need to mark
+`ghcr.io/hilather/labntp` public in the org UI so the integrator can pull
+without a token.
 
 ## Host-publish source IP
 

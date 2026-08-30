@@ -13,7 +13,8 @@ capability registry is `internal/capabilities`. MCP tools use the family
 prefix **`ntp_*`** (not `labntp_*`). Resources stay `labntp://…`.
 
 `features.list` ids are frozen in `api/mcp/v1.json` and
-`testdata/mcp/goldens/features.txt`. Later UI PRs must not add feature ids.
+`testdata/mcp/goldens/features.txt`. The operator SPA (PR 13) must not add
+feature ids; `spec.ui.enabled` is not a catalog row.
 
 ## Live vs reset-only
 

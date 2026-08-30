@@ -3,6 +3,7 @@
 ## Toolchain
 
 - Go 1.26 (`go1.26.x`). The module path is `github.com/hilather/go-lab-ntp`.
+- Node **22.14.0** and npm ≥10.9.0 for `web/` (`make web-install web-test web-build`).
 - `make lint` runs `go vet` and golangci-lint v2.12.2.
 - `make security-scan` runs `golang.org/x/vuln/cmd/govulncheck@v1.1.4` (optional until a later PR wires it into CI).
 

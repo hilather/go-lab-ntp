@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -351,24 +350,10 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.tryUI(w, r) {
+	if s.tryUI(w, r, instance) {
 		return
 	}
 	s.writeProblem(w, r, instance, domainerr.NotFound("not found"))
-}
-
-func (s *Server) tryUI(w http.ResponseWriter, r *http.Request) bool {
-	if s.cfg.UI == nil {
-		return false
-	}
-	if s.cfg.UIEnabled != nil && !s.cfg.UIEnabled() {
-		return false
-	}
-	if strings.HasPrefix(r.URL.Path, "/v1") || strings.HasPrefix(r.URL.Path, "/mcp") {
-		return false
-	}
-	s.cfg.UI.ServeHTTP(w, r)
-	return true
 }
 
 func (s *Server) reloadAuth() {

@@ -2,8 +2,7 @@
 #
 # Required jobs: format, lint, unit, race, fuzz-smoke, documentation,
 # config-compat, changelog, generated-file, parity, security-scan,
-# container-test. web-* is PR 13 and is not a CI job yet.
-# Do not mark a failing check optional.
+# container-test, web. Do not mark a failing check optional.
 
 name: CI
 
@@ -191,3 +190,31 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - name: Container contract
         run: make test-container
+
+  web:
+    name: web
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.14.0"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Committed embed is a real Vite tree
+        run: |
+          set -euo pipefail
+          # Inspect the checkout *before* web-build. container-test and
+          # publish-image docker-build that tree (no Node stage). Asserting
+          # after web-build would only prove CI can produce a dist, not that
+          # git contains one.
+          test -f internal/web/dist/index.html
+          grep -E -q '<title>LabNTP</title>|<div id="root">' internal/web/dist/index.html
+          ! grep -q 'UI assets were not copied' internal/web/dist/index.html
+          ls internal/web/dist/assets/*.js >/dev/null
+      - name: Operator SPA source still builds
+        run: |
+          make web-install
+          make web-test
+          make web-build

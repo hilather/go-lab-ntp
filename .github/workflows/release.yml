@@ -1,0 +1,140 @@
+# LabNTP tag gate + GHCR publish.
+#
+# tag-gate runs on v* tag push and workflow_dispatch (re-gate only).
+# publish-image runs only on push of tags v* (never dispatch).
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git tag (vX.Y.Z) or commit to gate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.event.inputs.ref || github.ref }}
+  cancel-in-progress: false
+
+env:
+  GO_VERSION: "1.26.6"
+  GOTOOLCHAIN: local
+  GOPROXY: https://proxy.golang.org,direct
+  IMAGE: ghcr.io/hilather/labntp
+
+jobs:
+  tag-gate:
+    name: tag-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Record exact commit
+        id: rev
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Reject dirty worktree
+        run: git diff --exit-code && git diff --cached --exit-code
+
+      - name: Verify generated files
+        run: make verify-generated
+
+      - name: Resolve notes path
+        id: gate
+        run: |
+          set -euo pipefail
+          ref="${{ github.event.inputs.ref || github.ref_name }}"
+          ref="${ref#refs/tags/}"
+          notes="docs/releases/${ref}.md"
+          if [ ! -f "${notes}" ]; then
+            echo "missing release notes ${notes}" >&2
+            exit 1
+          fi
+          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
+          echo "notes=${notes}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release notes headings
+        run: go run ./scripts/release-gate -notes-only -notes "${{ steps.gate.outputs.notes }}"
+
+      - name: Require green CI on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_SHA: ${{ steps.rev.outputs.sha }}
+        run: go run ./scripts/release-gate -require-ci
+
+  publish-image:
+    name: publish-image
+    needs: [tag-gate]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        id: meta
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=ref,event=tag
+            type=sha,prefix=sha-,format=short
+          flavor: |
+            latest=false
+
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        id: build
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          provenance: mode=max
+          sbom: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ github.event.head_commit.timestamp }}
+
+      - name: Record digest
+        run: |
+          set -euo pipefail
+          {
+            echo "ghcr.io/hilather/labntp:${{ github.ref_name }}"
+            echo "ghcr.io/hilather/labntp@${{ steps.build.outputs.digest }}"
+          } >> "$GITHUB_STEP_SUMMARY"

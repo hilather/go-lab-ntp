@@ -20,6 +20,7 @@ import (
 	"github.com/hilather/go-lab-ntp/internal/observability"
 	"github.com/hilather/go-lab-ntp/internal/querylog"
 	"github.com/hilather/go-lab-ntp/internal/snapshot"
+	"github.com/hilather/go-lab-ntp/internal/web"
 )
 
 type serveFlags struct {
@@ -170,6 +171,14 @@ func serveCmd(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 			Auth:           v,
 			Ready: func() bool {
 				return ntp.Bound() && store.Load() != nil
+			},
+			UI: web.NewHandler(nil),
+			UIEnabled: func() bool {
+				live := store.Load()
+				if live == nil || live.Canonical == nil {
+					return false
+				}
+				return live.Canonical.Spec.UI.Enabled
 			},
 			Mounts: map[string]http.Handler{
 				"/mcp": mcpSrv.Handler(),

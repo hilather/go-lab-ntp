@@ -6,6 +6,8 @@ Last reviewed: 2026-08-30
 
 This repo publishes an overlay BOM under `examples/`. **No product logic belongs in `mcp-integration-lab`.** Integrator pin is a later follow-up after Helm cuts a tag. Must not block labgraph, fixture packs, mcp-integration-lab #12, or LabMITM UI.
 
+Image for the pin: `ghcr.io/hilather/labntp:<tag>` **digest-pinned**. Compose examples in this repo may still use `labntp:local` for `make test-container`.
+
 ## Locked ports
 
 | Variable | Default | Notes |
@@ -15,7 +17,7 @@ This repo publishes an overlay BOM under `examples/`. **No product logic belongs
 
 ## Overlay
 
-- `examples/labntp.yaml` — one `default` follow-real filter; tester filters commented
+- `examples/labntp.yaml` — one `default` follow-real filter; tester filters commented; `spec.ui.enabled: true`; `allowedOrigins: []` (host-published `:18123` SPA is 403 until the lab overlay lists that origin; see [12-web-ui.md](12-web-ui.md))
 - `allowClientCidrs` = `10.99.42.0/24` + `127.0.0.0/8` + `::1/128`
 - `spec.management.mcp.allowLegacyClients: true`
 - Token file `/run/secrets/labntp-token` (0o644 if UID 65532)

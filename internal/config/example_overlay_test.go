@@ -26,7 +26,7 @@ func TestLabOverlayExample(t *testing.T) {
 		t.Fatalf("listeners ntp=%q mgmt=%q", st.Spec.Listeners.NTP.Address, st.Spec.Listeners.Management.Address)
 	}
 	if !st.Spec.UI.Enabled {
-		t.Fatal("ui.enabled must stay true (SPA lands in PR 13)")
+		t.Fatal("ui.enabled must stay true (operator SPA)")
 	}
 	if st.Spec.NTP.NTS.Enabled {
 		t.Fatal("nts.enabled must stay false in v1")

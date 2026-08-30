@@ -27,6 +27,11 @@ before touching code.
 `labntp query --server 127.0.0.1:1123` is a smoke SNTP client. It is never
 imported by the server.
 
+To bind REST/MCP and the operator SPA, pass `--management-listen=:8088` and
+keep `spec.ui.enabled: true` (overlay). `spec.ui.enabled: false` leaves
+`GET /` as 404. Local Vite: Node 22.14.0, `make web-install`,
+`npm --prefix web run dev`. See [docs/12-web-ui.md](docs/12-web-ui.md).
+
 YAML field rules and revisions live in
 [docs/04-state-and-configuration.md](docs/04-state-and-configuration.md).
 Wire, modes, NAT collision, and `userland-proxy`:

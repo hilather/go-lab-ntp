@@ -59,9 +59,9 @@ const usageText = `usage: labntp <command>
 
 LabNTP is a laboratory NTPv3/v4 server with per-IP virtual clocks.
 validate and canonicalize load a fail-closed labntp.dev/v1alpha1
-document. serve binds UDP NTP. Management REST /v1 and MCP /mcp bind
-only when --management-listen is an address (default off). The SPA
-lands in a later PR.
+document. serve binds UDP NTP. Management REST /v1, MCP /mcp, and the
+operator SPA at / bind only when --management-listen is an address
+(default off). spec.ui.enabled false keeps GET / as 404 problem+json.
 
 Commands:
   version         print build and protocol metadata

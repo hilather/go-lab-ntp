@@ -19,6 +19,7 @@ The numbered pack is the source of truth after foundation. Do not invent paths, 
 
 - REST and MCP (later) are adapters. Domain behavior belongs in `internal/app`, `internal/ntpserver`, `internal/ntpview`, `internal/ntpwire`, `internal/compiler`, `internal/config`, or `internal/model`.
 - REST handlers and MCP handlers must never implement independent business logic and must never call each other.
+- Production files in `internal/control/rest` **must not** import `internal/web`. `cmd/labntp/serve.go` wires `rest.Config.UI` and `UIEnabled` from the live snapshot. Tests in `rest` may import `web`.
 - `internal/ntpserver`, `internal/ntpwire`, `internal/ntpview`, and `internal/ntpkeys` **must not** import `internal/control` or `internal/web`.
 - `cmd/labntp/query.go` is a CLI-only SNTP client. `internal/ntpserver` and the serve path must not import it.
 - The NTP data plane must keep answering if REST/MCP/UI is slow or unbound (`--management-listen=off`).
