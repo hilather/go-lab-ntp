@@ -24,10 +24,6 @@ if ! command -v curl >/dev/null 2>&1; then
 	echo "curl is required for make test-container" >&2
 	exit 1
 fi
-if ! command -v python3 >/dev/null 2>&1; then
-	echo "python3 is required for NTP UDP smoke in make test-container" >&2
-	exit 1
-fi
 if [ ! -f "${TOKEN}" ] || [ ! -f "${CONFIG}" ]; then
 	echo "missing testdata/container/{token,config.yaml}" >&2
 	exit 1

@@ -44,3 +44,4 @@ First public candidate. Notes: [docs/releases/v1.0.0-rc.1.md](docs/releases/v1.0
 
 - Container smoke publishes `127.0.0.1:0:8088/tcp` (explicit random host port) so `docker port` works on GitHub-hosted Docker.
 - Container smoke token is ≥32 bytes after newline trim (bearer MinTokenBytes).
+- Container smoke NTP query runs in-container (`labntp query` to 127.0.0.1:1123); host-published UDP is the userland-proxy NAT-collision path.
