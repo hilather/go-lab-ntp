@@ -351,10 +351,11 @@ export function FiltersPage() {
                     id="filter-sample-ip"
                     className="preview-input"
                     value={sampleIP}
+                    readOnly
                     autoComplete="off"
                     spellCheck={false}
-                    onChange={(e) => setSampleIP(e.target.value)}
                   />
+                  <p className="muted">First CIDR host of this filter. In-pane math does not walk allowClientCidrs.</p>
                 </div>
                 <button type="button" className="primary" onClick={() => void onInPaneMath()}>
                   Approximate

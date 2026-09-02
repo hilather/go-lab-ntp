@@ -138,6 +138,51 @@ describe("FiltersPage", () => {
     expect("rate" in body.filter.view).toBe(false);
   });
 
+  it("enables a disabled filter with ui: enable filter", async () => {
+    const user = userEvent.setup();
+    seedCSRF();
+    const puts: Array<{ reason: string; filter: Filter; expectedRevision: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url.endsWith("/v1/session") && method === "GET") {
+          return json(200, sessionView());
+        }
+        if (url.endsWith("/v1/filters") && method === "GET") {
+          return json(200, { items: [{ ...followReal, enabled: false }] });
+        }
+        if (url.endsWith("/v1/state") && method === "GET") {
+          return json(200, {
+            bootstrapRevision: "sha256:boot",
+            runtimeRevision: "sha256:runtime",
+            generation: 1,
+            drifted: false,
+          });
+        }
+        if (url.includes("/v1/filters/") && method === "PUT") {
+          puts.push(JSON.parse(String(init?.body)) as { reason: string; filter: Filter; expectedRevision: string });
+          return json(200, { applied: true, runtimeRevision: "sha256:next" });
+        }
+        return problem(404, "not_found", "not found");
+      }),
+    );
+
+    renderApp(<FiltersPage />, { route: "/" });
+    const box = await screen.findByRole("checkbox", { name: /Enable default/i });
+    expect(box).not.toBeChecked();
+    await user.click(box);
+
+    await waitFor(() => {
+      expect(puts).toHaveLength(1);
+    });
+    expect(puts[0]?.expectedRevision).toBe("sha256:runtime");
+    expect(puts[0]?.reason).toBe("ui: enable filter");
+    expect(puts[0]?.filter.enabled).toBe(true);
+    expect(puts[0]?.filter.view.offset).toBe("0s");
+  });
+
   it("disables write controls for ntp.read viewers", async () => {
     vi.stubGlobal(
       "fetch",
@@ -182,7 +227,7 @@ describe("FiltersPage", () => {
     const names = screen.getAllByText(/tester-a-kerberos|tester-b-expired-cert|^default$/).map((n) => n.textContent);
     expect(names.indexOf("tester-a-kerberos")).toBeLessThan(names.indexOf("tester-b-expired-cert"));
     expect(names.indexOf("tester-b-expired-cert")).toBeLessThan(names.indexOf("default"));
-    expect(screen.getByText(/First/i).textContent).toMatch(/enabled/i);
+    expect(screen.getByText(/First.*CIDR hit wins/i)).toBeInTheDocument();
     expect(screen.getByText(/Longest prefix does not/i)).toBeInTheDocument();
   });
 
@@ -289,6 +334,9 @@ describe("FiltersPage", () => {
     );
     renderApp(<FiltersPage />, { route: "/" });
     await screen.findByLabelText(/Enable tester-a-kerberos/i);
+    const sample = screen.getByLabelText(/^Sample IP$/i);
+    expect(sample).toHaveValue("10.99.42.20");
+    expect(sample).toHaveAttribute("readonly");
     await user.click(screen.getByRole("button", { name: /^Approximate$/i }));
     expect(await screen.findByText("2026-09-02T18:10:42Z")).toBeInTheDocument();
     expect(urls.some((u) => u.includes("/v1/views/preview"))).toBe(false);

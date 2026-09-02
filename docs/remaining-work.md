@@ -499,19 +499,11 @@ Login copy: “Exchange a scoped API bearer token for an HttpOnly session cookie
 
 Reset copy: Reset rereads bootstrap YAML, wipes the query ring, never writes the file, rebinds per D8. Phrase **`RESET`**, checkbox confirm, optional reason. Submit disabled unless `ntp.admin` && phrase == `RESET` && confirmed.
 
-#### Filter table (home)
+#### Filters workspace (home)
 
-Columns:
+List-order inventory (~340px) plus clock inspector. Inventory rows: ordinal, name, CIDRs, mode chip, ENABLED/disabled. Caption: first **enabled** CIDR hit wins. Longest-prefix does not. Catch-all stays last. No drag-reorder (that is `replaceFilters` / YAML).
 
-- **Name**
-- **Enabled** — `<input type="checkbox">` disabled without `ntp.write`
-- **CIDRs** — `match.cidrs` joined
-- **Mode** — chip (`follow-real` / `offset` / `absolute` / `freeze` / `rate`)
-- **Leap** — chip (`none` / `insert` / `delete` / `unsync`)
-- **Stratum** — chip (1–16; 16 styled as unsync)
-- **refid**
-
-Row order is **list order** (first-match). Caption: “First enabled match wins. Longest-prefix does not.” Do not add a “move up/down” control in v1 (that is `replaceFilters` / YAML).
+Inspector: SERVE THIS VIEW checkbox and Enable/Disable (PUT of last GET with `enabled` flipped; reasons `ui: enable filter` / `ui: disable filter`). Save view PUTs mode-conditional fields the API already accepts (`offset` / `absolute` / `freezeAt` / `rate`, leap, stratum, refid). Reason `ui: save view`. Do not invent precision / rootDelay / jitter / minpoll. In-pane math is selected-filter only (sample IP = first CIDR host, read-only). Compiled match walk is the Preview route.
 
 #### Preview page
 

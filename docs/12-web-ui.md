@@ -56,7 +56,7 @@ Do not read `status.revisions.runtimeRevision` — nested Status keys are
 PascalCase (`BootstrapRevision`).
 
 In-pane “what this client would see” is selected-filter math only (sample
-IP default = first CIDR host). It does **not** call
+IP = first CIDR host, read-only). It does **not** call
 `GET /v1/views/preview`. Host time is `GET /v1/status` `hostTime`.
 follow-real / offset / freeze match the product formulas. absolute and
 rate show elapsed 0 because compiled `epochMono` is not on the Filter DTO
