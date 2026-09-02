@@ -1,14 +1,21 @@
-import type { Filter, View } from "../api/types";
+import type { Filter } from "../api/types";
+
+const NS = 1;
+const US = 1_000;
+const MS = 1_000_000;
+const SEC = 1_000_000_000;
+const MIN = 60 * SEC;
+const HOUR = 60 * MIN;
 
 const UNIT_NS: Record<string, number> = {
-  ns: 1,
-  us: 1_000,
-  µs: 1_000,
-  μs: 1_000,
-  ms: 1_000_000,
-  s: 1_000_000_000,
-  m: 60_000_000_000,
-  h: 3_600_000_000_000,
+  ns: NS,
+  us: US,
+  µs: US,
+  μs: US,
+  ms: MS,
+  s: SEC,
+  m: MIN,
+  h: HOUR,
 };
 
 /** Port of config.FormatDuration — not Go Duration.String(). */
@@ -19,20 +26,20 @@ export function formatDuration(ns: number): string {
   if (ns < 0) {
     return `-${formatDuration(-ns)}`;
   }
-  if (ns % UNIT_NS.h === 0) {
-    return `${ns / UNIT_NS.h}h`;
+  if (ns % HOUR === 0) {
+    return `${ns / HOUR}h`;
   }
-  if (ns % UNIT_NS.m === 0) {
-    return `${ns / UNIT_NS.m}m`;
+  if (ns % MIN === 0) {
+    return `${ns / MIN}m`;
   }
-  if (ns % UNIT_NS.s === 0) {
-    return `${ns / UNIT_NS.s}s`;
+  if (ns % SEC === 0) {
+    return `${ns / SEC}s`;
   }
-  if (ns % UNIT_NS.ms === 0) {
-    return `${ns / UNIT_NS.ms}ms`;
+  if (ns % MS === 0) {
+    return `${ns / MS}ms`;
   }
-  if (ns % UNIT_NS.us === 0) {
-    return `${ns / UNIT_NS.us}us`;
+  if (ns % US === 0) {
+    return `${ns / US}us`;
   }
   return `${ns}ns`;
 }
@@ -58,7 +65,11 @@ export function parseDuration(input: string): number | null {
     if (!Number.isFinite(n) || unit === undefined) {
       return null;
     }
-    ns += n * UNIT_NS[unit];
+    const factor = UNIT_NS[unit];
+    if (factor === undefined) {
+      return null;
+    }
+    ns += n * factor;
   }
   return sign * ns;
 }
@@ -78,7 +89,16 @@ export function sampleIPFromFilter(filter: Filter): string {
 
 export type ViewMathInput = {
   name: string;
-  view: Pick<View, "mode" | "offset" | "absolute" | "freezeAt" | "epoch" | "leap" | "stratum" | "refid">;
+  view: {
+    mode: string;
+    offset?: string;
+    absolute?: string;
+    freezeAt?: string;
+    epoch?: string;
+    leap?: string;
+    stratum?: number;
+    refid?: string;
+  };
 };
 
 export type ViewMathResult = {

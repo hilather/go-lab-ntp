@@ -126,7 +126,7 @@ export function FiltersPage() {
             offset: draft.offset,
             absolute: draft.absolute,
             freezeAt: draft.freezeAt,
-            epoch: selected.view.epoch,
+            epoch: selected.view.epoch ?? "",
             leap: draft.leap,
             stratum: Number(draft.stratum),
             refid: draft.refid,
@@ -166,9 +166,7 @@ export function FiltersPage() {
         <section className="inventory" aria-labelledby="filters-heading">
           <div className="inventory-head">
             <p className="kicker">Filters</p>
-            <h1 id="filters-heading">
-              {(items ?? []).length} · list order
-            </h1>
+            <h1 id="filters-heading">{(items ?? []).length} · list order</h1>
             <p className="muted">
               First <strong>enabled</strong> CIDR hit wins. Longest prefix does not. Catch-all stays last.
             </p>

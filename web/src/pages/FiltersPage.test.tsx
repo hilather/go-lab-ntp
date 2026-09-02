@@ -290,7 +290,7 @@ describe("FiltersPage", () => {
     renderApp(<FiltersPage />, { route: "/" });
     await screen.findByLabelText(/Enable tester-a-kerberos/i);
     await user.click(screen.getByRole("button", { name: /^Approximate$/i }));
-    expect(await screen.findByText("tester-a-kerberos")).toBeInTheDocument();
+    expect(await screen.findByText("2026-09-02T18:10:42Z")).toBeInTheDocument();
     expect(urls.some((u) => u.includes("/v1/views/preview"))).toBe(false);
     expect(urls.some((u) => u.includes("/v1/status"))).toBe(true);
   });
