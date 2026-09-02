@@ -7,9 +7,9 @@ Browser auth is `POST /v1/session` (bearer only — no HTTP Basic) → HttpOnly
 Mutations send `X-LabNTP-CSRF`. The token is never written to `localStorage`
 or `sessionStorage`.
 
-Pages: sign-in, filters (enable/disable), preview-an-IP, features (live vs
-reset-only), query ring, status, gated reset. Query ring is polled (`GET
-/v1/queries`, 5s). There is no audit page and no YAML editor.
+Pages: sign-in, filters (list-order inventory + inspector), preview-an-IP,
+features (live vs reset-only), query ring, status, gated reset. Query ring
+is polled (`GET /v1/queries`, 5s). There is no audit page and no YAML editor.
 
 `web/go.mod` is a nested-module fence so parent `go test ./...` does not walk
 `node_modules`. Do not import `github.com/hilather/go-lab-ntp/web` from the

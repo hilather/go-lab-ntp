@@ -13,6 +13,11 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 - README and START-HERE rewritten in plain English, with copy-paste quick starts for `validate` / `canonicalize` and the `/v1/state*` APIs.
 - Documentation catalog lists the user guide as the operator front door.
+- Operator chrome: Lab* family shell (56px masthead, CLOCKS/LAB rail, IBM Plex,
+  dark tokens). Filters is list-order inventory + clock inspector + selected-filter
+  math. Preview restyles `GET /v1/views/preview?ip=`. Queries / Features / Status /
+  Reset inherit the shell only. Same REST (`PUT /v1/filters/{name}`, preview GET);
+  no new endpoints.
 
 ### Fixed
 

@@ -31,6 +31,9 @@ describe("App nav", () => {
     );
     render(<App />);
     expect(await screen.findByRole("link", { name: "Filters" })).toBeInTheDocument();
+    expect(screen.getByText("CLOCKS")).toBeInTheDocument();
+    expect(screen.getByText("LAB")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Reset" })).toBeNull();
+    expect(screen.getByText(/list order/i)).toBeInTheDocument();
   });
 });

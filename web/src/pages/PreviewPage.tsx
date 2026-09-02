@@ -2,24 +2,25 @@ import { FormEvent, useState } from "react";
 import { APIError, previewView } from "../api/client";
 import type { Preview } from "../api/types";
 
+const TEST_IPS = ["10.99.42.20", "10.99.42.30", "10.99.42.1", "127.0.0.1", "8.8.8.8", "203.0.113.9"];
+
 export function PreviewPage() {
+  const [ip, setIP] = useState("");
   const [result, setResult] = useState<Preview | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function onSubmit(ev: FormEvent<HTMLFormElement>) {
-    ev.preventDefault();
-    const fd = new FormData(ev.currentTarget);
-    const ip = String(fd.get("ip") ?? "").trim();
+  async function runPreview(value: string) {
+    const next = value.trim();
     setError("");
     setResult(null);
-    if (ip === "") {
+    if (next === "") {
       setError("Enter an IP address.");
       return;
     }
     setBusy(true);
     try {
-      setResult(await previewView(ip));
+      setResult(await previewView(next));
     } catch (err) {
       setError(err instanceof APIError ? err.message : "Preview failed.");
     } finally {
@@ -27,26 +28,60 @@ export function PreviewPage() {
     }
   }
 
+  async function onSubmit(ev: FormEvent<HTMLFormElement>) {
+    ev.preventDefault();
+    await runPreview(ip);
+  }
+
   return (
     <main className="page">
       <h1>Preview</h1>
       <p>
-        Preview does not send NTP. Host-publish NAT collision does not affect preview (D24). Compose-network
-        sources and this page stay reliable without <code>userland-proxy: false</code>.
+        GET /v1/views/preview?ip= — compiled match walk plus allowClientCidrs. Preview does not send NTP. Host-publish
+        NAT collision does not affect preview (D24). Compose-network sources and this page stay reliable without{" "}
+        <code>userland-proxy: false</code>.
       </p>
       {error !== "" ? (
         <p className="banner-error" role="alert">
           {error}
         </p>
       ) : null}
-      <form className="row" onSubmit={(e) => void onSubmit(e)}>
-        <div className="field">
-          <label htmlFor="preview-ip">IP address</label>
-          <input id="preview-ip" name="ip" autoComplete="off" spellCheck={false} required />
+      <form className="panel" onSubmit={(e) => void onSubmit(e)} noValidate>
+        <p className="kicker">Client IP</p>
+        <div className="row">
+          <div className="field field--grow">
+            <label htmlFor="preview-ip">IP address</label>
+            <input
+              id="preview-ip"
+              name="ip"
+              className="preview-input"
+              value={ip}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(e) => setIP(e.target.value)}
+            />
+          </div>
+          <button type="submit" disabled={busy}>
+            {busy ? "Previewing…" : "Preview"}
+          </button>
         </div>
-        <button type="submit" disabled={busy}>
-          {busy ? "Previewing…" : "Preview"}
-        </button>
+        <div className="chip-row">
+          {TEST_IPS.map((addr) => (
+            <button
+              key={addr}
+              type="button"
+              className="chip-btn"
+              disabled={busy}
+              onClick={() => {
+                setIP(addr);
+                void runPreview(addr);
+              }}
+            >
+              {addr}
+            </button>
+          ))}
+        </div>
+        <p className="muted">Test-data addresses. Each chip calls the same GET.</p>
       </form>
       {result ? <PreviewResult result={result} /> : null}
     </main>
@@ -67,6 +102,16 @@ function PreviewResult({ result }: { result: Preview }) {
   return (
     <section>
       <h2>Result</h2>
+      <div className="result-cards">
+        <div className="result-card">
+          <p className="kicker">Client IP in</p>
+          <strong>{result.ip}</strong>
+        </div>
+        <div className="result-card">
+          <p className="kicker">Virtual time out</p>
+          <strong className="served">{result.servedTime ?? "—"}</strong>
+        </div>
+      </div>
       <dl>
         <div>
           <dt>Filter</dt>
@@ -75,7 +120,7 @@ function PreviewResult({ result }: { result: Preview }) {
         <div>
           <dt>Served time</dt>
           <dd>
-            <code>{result.servedTime ?? "—"}</code>
+            <code className="served">{result.servedTime ?? "—"}</code>
           </dd>
         </div>
         <div>
@@ -87,7 +132,7 @@ function PreviewResult({ result }: { result: Preview }) {
         <div>
           <dt>Mode</dt>
           <dd>
-            <span className="chip">{result.mode || "—"}</span>
+            <span className="chip chip--mode">{result.mode || "—"}</span>
           </dd>
         </div>
         <div>

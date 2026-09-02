@@ -13,6 +13,12 @@ describe("operator nav", () => {
     ]);
     expect(navItems(true).map((i) => i.label)).toContain("Reset");
     expect(navItems(true).some((i) => i.label === "Audit")).toBe(false);
+    expect(navItems(false).filter((i) => i.group === "CLOCKS").map((i) => i.label)).toEqual([
+      "Filters",
+      "Preview",
+      "Queries",
+    ]);
+    expect(navItems(false).filter((i) => i.group === "LAB").map((i) => i.label)).toEqual(["Features", "Status"]);
   });
 
   it("gates reset on the exact phrase and confirmation", () => {

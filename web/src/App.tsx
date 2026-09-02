@@ -1,5 +1,6 @@
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes } from "react-router-dom";
+import { getStatus } from "./api/client";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import { SCOPE_ADMIN } from "./auth/scopes";
 import { FeaturesPage } from "./pages/FeaturesPage";
@@ -9,7 +10,7 @@ import { PreviewPage } from "./pages/PreviewPage";
 import { QueriesPage } from "./pages/QueriesPage";
 import { ResetPage } from "./pages/ResetPage";
 import { StatusPage } from "./pages/StatusPage";
-import { navItems } from "./ui/nav";
+import { navGroups } from "./ui/nav";
 
 function SkipLink() {
   return (
@@ -30,29 +31,74 @@ function NavItem({ to, children }: { to: string; children: ReactNode }) {
 function Shell() {
   const { state, hasScope, logout } = useAuth();
   const signedIn = state.status === "signed_in";
-  const items = signedIn ? navItems(hasScope(SCOPE_ADMIN)) : [];
+  const scopes = signedIn ? (state.session.scopes ?? []) : [];
+  const groups = signedIn ? navGroups(hasScope(SCOPE_ADMIN)) : [];
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (!signedIn) {
+      setReady(false);
+      return;
+    }
+    let cancelled = false;
+    void getStatus()
+      .then((st) => {
+        if (!cancelled) {
+          setReady(Boolean(st.ready));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setReady(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [signedIn]);
+
   return (
     <div className="app">
       <SkipLink />
-      <header className="topbar">
+      <header className="masthead">
         <NavLink className="brand" to="/">
           LabNTP
         </NavLink>
-        <nav aria-label="Primary">
-          {items.map((item) => (
-            <NavItem key={item.to} to={item.to}>
-              {item.label}
-            </NavItem>
-          ))}
+        <div className="masthead-end">
           {signedIn ? (
-            <button type="button" className="linkish" onClick={() => void logout()}>
-              Sign out
-            </button>
+            <>
+              <span className="chip chip--ok">live</span>
+              <span className={ready ? "chip chip--ok" : "chip"}>ready</span>
+              {scopes.map((scope) => (
+                <span key={scope} className="chip chip--scope">
+                  {scope}
+                </span>
+              ))}
+              <button type="button" className="sign-out" onClick={() => void logout()}>
+                Sign out
+              </button>
+            </>
           ) : null}
-        </nav>
+        </div>
       </header>
-      <div id="app-main">
-        <Outlet />
+      <div className={signedIn ? "app-body" : "app-body app-body--anon"}>
+        {signedIn ? (
+          <nav className="rail" aria-label="Primary">
+            {groups.map((group) => (
+              <div key={group.heading}>
+                <p className="rail-group">{group.heading}</p>
+                {group.items.map((item) => (
+                  <NavItem key={item.to} to={item.to}>
+                    {item.label}
+                  </NavItem>
+                ))}
+              </div>
+            ))}
+          </nav>
+        ) : null}
+        <div id="app-main">
+          <Outlet />
+        </div>
       </div>
     </div>
   );
