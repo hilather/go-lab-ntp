@@ -116,7 +116,7 @@ Do **not** copy LabMITM flow-inspector types, SSE live flows, CA download, or La
 | **D29** | Publish **`v1.0.0-rc.2`**, not `v1.0.0-rc.1`. SPA lands on `main` first; the tag that GHCR ships **is the tag that includes this wave**. | SPA is user-visible. Publishing rc.1 after SPA exists on `main` would ship a GHCR lie. The user asked the last step to “publish the image”; that image must match the commits being announced on #17. |
 | **D30** | SPA stack is **LabMITM-identical**: Node **22.14.0**, npm **≥10.9.0**, Vite 8, React 19, React Router 7, TypeScript ~5.9, Vitest 4, jsdom, Testing Library. Package name `labntp-web`. | D18 already pinned Node 22.14.0. Copy patterns, not LabMITM product types. Do not add Playwright. |
 | **D31** | Embed via `go:embed` of **`internal/web/dist`**. Dockerfile stays **no Node stage**. `make web-build` copies `web/dist` → `internal/web/dist`. Commit the embedded dist so `go test` / `docker build` / GHCR do not need Node. `web/dist/` and `web/node_modules/` stay gitignored (already in [`.gitignore`](file:///home/brewerm/git/go-lab-ntp/.gitignore)). | Identical to LabMITM. Scratch image cannot run Node. |
-| **D32** | First UI screens are **exactly D16**: Filters (home), Preview, Features, Queries, Status, gated Reset, Login. **No** audit page, **no** YAML editor, **no** view-field form beyond enable/disable + chips. | FR: “filter table, enable/disable, preview-an-IP, leap/stratum chips, live vs reset-only labeled.” Full GitOps remains YAML + plan/apply. |
+| **D32** | First UI screens are **exactly D16**: Filters (home), Preview, Features, Queries, Status, gated Reset, Login. **No** audit page, **no** YAML editor. The table-only “enable/disable + chips” first cut is **superseded** by the Matt-approved chrome in [docs/12-web-ui.md](12-web-ui.md) (list-order inventory + inspector Save of Filter fields `PUT` already accepts). | FR screens unchanged. Inspector is chrome over existing `PutFilter`, not a YAML editor. |
 | **D33** | Enable/disable is `PUT /v1/filters/{name}` through existing `app.Service.PutFilter` with `expectedRevision` from `GET /v1/state` `runtimeRevision`. CSRF header `X-LabNTP-CSRF`. Requires `ntp.write`. | Filters CRUD already exists ([`handlers.go`](file:///home/brewerm/git/go-lab-ntp/internal/control/rest/handlers.go) `handleFiltersPut`). SPA is an adapter, not a second mutation path. |
 | **D34** | Query ring is **polled** (`GET /v1/queries`, default 5s, limit 256). No EventSource, no pcap download, no virtualized JS heap browser, no log dump beyond the ring. | FR: “No JS heap browser for logs beyond the query ring.” LabMITM SSE is for flows; LabNTP has no query SSE. |
 | **D35** | **Must not** add `features.list` ids. SPA renders `GET /v1/features` as live vs reset-only chips. Golden [`testdata/mcp/goldens/features.txt`](file:///home/brewerm/git/go-lab-ntp/testdata/mcp/goldens/features.txt) stays bit-identical. | D12 / PR 9 freeze. [`features.go`](file:///home/brewerm/git/go-lab-ntp/internal/capabilities/features.go) already says “PR 13 must not add ids.” |
@@ -499,19 +499,11 @@ Login copy: “Exchange a scoped API bearer token for an HttpOnly session cookie
 
 Reset copy: Reset rereads bootstrap YAML, wipes the query ring, never writes the file, rebinds per D8. Phrase **`RESET`**, checkbox confirm, optional reason. Submit disabled unless `ntp.admin` && phrase == `RESET` && confirmed.
 
-#### Filter table (home)
+#### Filters workspace (home)
 
-Columns:
+List-order inventory (~340px) plus clock inspector. Inventory rows: ordinal, name, CIDRs, mode chip, ENABLED/disabled. Caption: first **enabled** CIDR hit wins. Longest-prefix does not. Catch-all stays last. No drag-reorder (that is `replaceFilters` / YAML).
 
-- **Name**
-- **Enabled** — `<input type="checkbox">` disabled without `ntp.write`
-- **CIDRs** — `match.cidrs` joined
-- **Mode** — chip (`follow-real` / `offset` / `absolute` / `freeze` / `rate`)
-- **Leap** — chip (`none` / `insert` / `delete` / `unsync`)
-- **Stratum** — chip (1–16; 16 styled as unsync)
-- **refid**
-
-Row order is **list order** (first-match). Caption: “First enabled match wins. Longest-prefix does not.” Do not add a “move up/down” control in v1 (that is `replaceFilters` / YAML).
+Inspector: SERVE THIS VIEW checkbox and Enable/Disable (PUT of last GET with `enabled` flipped; reasons `ui: enable filter` / `ui: disable filter`). Save view PUTs mode-conditional fields the API already accepts (`offset` / `absolute` / `freezeAt` / `rate`, leap, stratum, refid). Reason `ui: save view`. Do not invent precision / rootDelay / jitter / minpoll. In-pane math is selected-filter only (sample IP = first CIDR host, read-only). Compiled match walk is the Preview route.
 
 #### Preview page
 
@@ -988,7 +980,7 @@ Enable/disable mutates `spec.filters[].enabled` through the existing compile+swa
 
 - **Pros:** operators never leave the browser.
 - **Cons:** out of D16; easy to violate KnownFields / presence types (`rate: 0` vs omitted); GitOps file is still the source of truth.
-- **Rejected.** Enable/disable + preview only.
+- **Rejected.** A YAML editor is still out. Inspector Save of Filter fields `PUT` already accepts is the approved chrome in [docs/12-web-ui.md](12-web-ui.md), not this alternative.
 
 ---
 

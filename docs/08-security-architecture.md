@@ -19,6 +19,8 @@ max 64 sessions. CSRF header `X-LabNTP-CSRF` on cookie-authenticated
 mutations. CSRF secret is in-memory only (`web/src/api/client.ts`). Do not
 store tokens in localStorage. Vitest `assertNoTokenStorage` and
 `web/src/api/storage.test.ts` lock this. See [12-web-ui.md](12-web-ui.md).
+The SPA loads IBM Plex from the Google Fonts CDN (`fonts.googleapis.com`,
+`fonts.gstatic.com`) with a `system-ui` fallback.
 
 ## Origins
 
