@@ -28,3 +28,11 @@ query log, never writes the file, and rebinds NTP/HTTP per D8
 
 `make test-parity` checks that every non-REST-only catalog row has a live
 `ntp_*` tool and that goldens match the registry.
+
+MCP `tools/call` argument schemas are inferred from Go types. Fields
+without `omitempty` become JSON Schema `required`. ViewSpec fields whose
+Go zero is a designed omit (`precision`, `rootDelay`, `rootDispersion`,
+`jitter`, `offset`, `leap`, `refid`) are optional on MCP input so they
+match REST/typed apply (omitted JSON unmarshals to zero). YAML document
+decode still materializes `precision: -20`. The adapter relaxes the
+generated `required` list only; it does not implement domain logic.

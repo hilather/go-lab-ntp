@@ -183,6 +183,7 @@ func addTool[In any](s *Server, name, desc string, mutating, idempotent bool, h 
 		Title:       title,
 		Description: desc,
 		Annotations: ann,
+		InputSchema: inferToolInput[In](),
 	}, func(ctx context.Context, _ *sdk.CallToolRequest, in In) (*sdk.CallToolResult, any, error) {
 		if err := ctx.Err(); err != nil {
 			return toolErrorResult(canceledError(err)), nil, nil

@@ -21,7 +21,12 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
-- None.
+- MCP `ntp_change_apply` (and other tools that embed `ViewSpec`) no longer
+  reject omitted zero-default view fields (`precision`, `rootDelay`,
+  `rootDispersion`, `jitter`, `offset`, `leap`, `refid`). Generated JSON
+  Schema `required` now matches REST/typed apply omit-to-zero; YAML
+  document decode still materializes `precision: -20`. `config.validateView`
+  is unchanged. Fixes #2.
 
 ### Removed or deprecated
 
