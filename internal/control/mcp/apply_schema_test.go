@@ -143,8 +143,9 @@ func TestChangeApplyRejectsOmittedViewMode(t *testing.T) {
 	if !res.IsError {
 		t.Fatal("want schema isError when view.mode is omitted")
 	}
-	if !strings.Contains(toolText(res), "mode") {
-		t.Fatalf("want missing mode, got %s", toolText(res))
+	got := toolText(res)
+	if !strings.Contains(got, "missing properties") || !strings.Contains(got, "mode") {
+		t.Fatalf("want schema missing properties mode, got %s", got)
 	}
 }
 

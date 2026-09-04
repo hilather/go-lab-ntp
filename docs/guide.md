@@ -341,7 +341,8 @@ Reset rereads the bootstrap mount, wipes the query log, and swaps. If the effect
 | Filters | `ntp_filters_list`, `ntp_filters_get`, `ntp_filters_put`, `ntp_filters_delete` |
 
 MCP does not HTTP-call REST. Both call `app.Service`. ViewSpec zero-defaults
-may be omitted on `ntp_change_apply` the same way as YAML/REST. See [MCP API](07-mcp-api.md).
+may be omitted on `ntp_change_apply` (JSON/typed omit → Go zero; YAML
+document decode still materializes `precision: -20`). See [MCP API](07-mcp-api.md).
 
 ## Who is allowed to ask
 

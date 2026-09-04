@@ -1511,7 +1511,7 @@ Each PR is independently reviewable and mergeable in **`hilather/go-lab-ntp`**. 
 - **Title:** `feat: MCP 2026-07-28 adapter`
 - **Files:** `internal/control/mcp/*`, `api/mcp/v1.json`, `testdata/mcp/goldens/*` (frozen `ntp_*` tools + `features.list` ids), `cmd/labntp/mcpstdio.go` (`--token-file` required), `docs/07-mcp-api.md`, ADR 0006, `docs/05-control-plane-and-parity.md`
 - **Depends on:** PR 8, **PR 10**
-- **Description:** Official SDK v1.7.0, protocol pin, `Stateless: true`, `ntp_*` tools (not `labntp_*`), `labntp://` resources. Bearer-only; fail closed with zero tokens (same as REST). MCP must not HTTP-call REST. `make test-parity`. `allowLegacyClients` default false. Freeze features id list in this PR. Generated input schemas drop ViewSpec zero-default fields from `required` (`precision` / `rootDelay` / `rootDispersion` / `jitter` / omitted `offset` / `leap` / `refid`) so MCP matches REST/YAML omit-defaults; `config.validateView` stays the real gate.
+- **Description:** Official SDK v1.7.0, protocol pin, `Stateless: true`, `ntp_*` tools (not `labntp_*`), `labntp://` resources. Bearer-only; fail closed with zero tokens (same as REST). MCP must not HTTP-call REST. `make test-parity`. `allowLegacyClients` default false. Freeze features id list in this PR. Generated input schemas drop ViewSpec zero-default fields from `required` (`precision` / `rootDelay` / `rootDispersion` / `jitter` / omitted `offset` / `leap` / `refid`) so MCP matches REST/typed apply omit-to-zero (YAML document decode still materializes `precision: -20`); `config.validateView` stays the real gate.
 
 ### PR 11 — Observability
 
