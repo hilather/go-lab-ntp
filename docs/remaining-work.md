@@ -41,7 +41,7 @@ SPA is user-visible. Publishing `v1.0.0-rc.1` into GHCR after this wave would sh
 | Notes | [`docs/releases/v1.0.0-rc.1.md`](file:///home/brewerm/git/go-lab-ntp/docs/releases/v1.0.0-rc.1.md) |
 | Branch | `main` == `origin/main`, working tree clean |
 | Program board | [`tasks/00-program-board.md`](file:///home/brewerm/git/go-lab-ntp/tasks/00-program-board.md): PRs 1–12 **done**, PR 13 Operator SPA **pending** |
-| Direct deps | `gopkg.in/yaml.v3` + `github.com/modelcontextprotocol/go-sdk v1.7.0` |
+| Direct deps | `gopkg.in/yaml.v3` + `github.com/modelcontextprotocol/go-sdk v1.7.0` (MCP adapter may import the SDK’s pinned `jsonschema-go` for tool-input `required` only) |
 | CI | [`.github/workflows/ci.yml`](file:///home/brewerm/git/go-lab-ntp/.github/workflows/ci.yml) — no `web` job; comment says “web-* is PR 13” |
 | Make | [`Makefile`](file:///home/brewerm/git/go-lab-ntp/Makefile) `web-install` / `web-test` / `web-build` / `web-embed` print “not implemented (PR 13)” and **exit 1** |
 | Image | [`Dockerfile`](file:///home/brewerm/git/go-lab-ntp/Dockerfile) exists (`ghcr.io/hilather/labntp`, scratch, `USER 65532:65532`, HEALTHCHECK `CMD ["/labntp", "healthcheck", …]`). **No GHCR push. No `release.yml`.** |
