@@ -14,7 +14,8 @@ HTTP-call REST. `labntp mcp-stdio` requires `--token-file`.
 
 Generated tool input schemas must not mark ViewSpec zero-default fields
 required (`precision`, `rootDelay`, `rootDispersion`, `jitter`, omitted
-`offset`, `leap`, `refid`). Those are YAML/REST defaults. `mode` and
+`offset`, `leap`, `refid`). Those omit to Go zero on REST/MCP JSON apply
+(YAML document decode still materializes `precision: -20`). `mode` and
 `stratum` stay required at the schema gate (`stratum` `0` fails
 `config.validateView`). Real validation remains `config.validateView`;
 the adapter does not implement a second domain gate.

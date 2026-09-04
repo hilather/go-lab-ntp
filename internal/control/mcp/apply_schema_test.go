@@ -109,7 +109,7 @@ func TestChangeApplyViewSchemaOmitsZeroDefaults(t *testing.T) {
 			t.Fatal(err)
 		}
 		switch tool.Name {
-		case "ntp_change_apply":
+		case "ntp_change_apply", "ntp_change_plan", "ntp_state_validate":
 			req := viewRequiredAt(t, tool.InputSchema, "properties", "operations", "items", "properties", "filters", "items", "properties", "view")
 			assertViewRequired(t, tool.Name+" filters[].view", req, wantOptional)
 			single := viewRequiredAt(t, tool.InputSchema, "properties", "operations", "items", "properties", "filter", "properties", "view")
@@ -121,8 +121,30 @@ func TestChangeApplyViewSchemaOmitsZeroDefaults(t *testing.T) {
 			found[tool.Name] = true
 		}
 	}
-	if !found["ntp_change_apply"] || !found["ntp_filters_put"] {
+	if !found["ntp_change_apply"] || !found["ntp_filters_put"] || !found["ntp_change_plan"] || !found["ntp_state_validate"] {
 		t.Fatalf("missing tools: %v", found)
+	}
+}
+
+func TestChangeApplyRejectsOmittedViewMode(t *testing.T) {
+	s, svc := newTestServer(t)
+	ts := startHTTP(t, s)
+	cs := connectClient(t, ts)
+	args := smokeReplaceFiltersArgs(string(svc.Active().Revision))
+	ops := args["operations"].([]any)
+	op := ops[0].(map[string]any)
+	filters := op["filters"].([]any)
+	view := filters[0].(map[string]any)["view"].(map[string]any)
+	delete(view, "mode")
+	res, err := cs.CallTool(t.Context(), &sdk.CallToolParams{Name: "ntp_change_apply", Arguments: args})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("want schema isError when view.mode is omitted")
+	}
+	if !strings.Contains(toolText(res), "mode") {
+		t.Fatalf("want missing mode, got %s", toolText(res))
 	}
 }
 

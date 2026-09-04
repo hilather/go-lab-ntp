@@ -8,9 +8,10 @@ import (
 	"github.com/hilather/go-lab-ntp/internal/model"
 )
 
-// optionalViewJSON are ViewSpec wire fields whose zero value is a designed
-// default (YAML/REST omit). jsonschema-go marks non-omitempty fields required;
-// the MCP adapter must not invent a stricter gate than Apply/validateView.
+// optionalViewJSON are ViewSpec wire fields whose Go zero is a designed
+// JSON/typed omit (REST apply and MCP unmarshal). YAML document decode still
+// materializes precision -20. jsonschema-go marks non-omitempty fields
+// required; the MCP adapter must not invent a stricter gate than validateView.
 var optionalViewJSON = map[string]struct{}{
 	"precision":      {},
 	"rootDelay":      {},
