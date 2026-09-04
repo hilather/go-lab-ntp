@@ -6,6 +6,26 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Added
 
+- None.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Removed or deprecated
+
+- None.
+
+## 1.0.0-rc.3 - 2026-09-04
+
+MCP ViewSpec omit-to-zero, operator chrome, and plain-English docs. Notes: [docs/releases/v1.0.0-rc.3.md](docs/releases/v1.0.0-rc.3.md).
+
+### Added
+
 - Operator [user guide](docs/guide.md): YAML loading, clock modes, REST/MCP state APIs, Docker, and troubleshooting.
 - Repository header art and mark under `docs/assets/`.
 
