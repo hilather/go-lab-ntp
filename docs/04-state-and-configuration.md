@@ -80,6 +80,8 @@ Reset-only: listen addresses, `ntp.nts.enabled`, `ntp.symmetricKeys.file`,
 HTTP serves on the new listener first, closes the old listener immediately,
 and drains the old server in the background for up to 5s. Turning management
 off closes the listener immediately and does not wait on in-flight requests.
+Process shutdown waits for that background drain until its timeout. After
+management is off, its listen address is empty.
 Flags always win over YAML on serve and Reset.
 
 `app.Service` Plan/Apply/Reset implements this split. Reset rebinds NTP and

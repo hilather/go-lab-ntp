@@ -86,8 +86,12 @@ type Server struct {
 	ln       net.Listener
 	closed   atomic.Bool
 	addr     string
-	// drains counts background rebind drains. Shutdown waits for them.
-	drains sync.WaitGroup
+	// drains are background rebind drains. Each channel is created in the
+	// same s.mu section that detaches the old server, and closed when that
+	// drain finishes, including Close after a timeout. A slice under mu,
+	// not a WaitGroup: Add concurrent with Wait panics once the counter
+	// has hit zero, and Rebind can start a drain while Shutdown is waiting.
+	drains []chan struct{}
 }
 
 // New builds a Server. Routes come from the frozen capability registry.
@@ -240,11 +244,13 @@ func (s *Server) Rebind(addr string) error {
 		s.ln = nil
 		s.addr = ""
 		s.closed.Store(true)
+		var done chan struct{}
 		if oldHS != nil || oldLn != nil {
-			s.drains.Add(1)
+			done = make(chan struct{})
+			s.drains = append(s.drains, done)
 		}
 		s.mu.Unlock()
-		s.drainAsync(oldHS, oldLn)
+		s.drainAsync(oldHS, oldLn, done)
 		return nil
 	}
 	ln, err := net.Listen("tcp", addr)
@@ -258,28 +264,38 @@ func (s *Server) Rebind(addr string) error {
 	s.ln = ln
 	s.addr = ln.Addr().String()
 	s.closed.Store(false)
+	var done chan struct{}
 	if oldHS != nil || oldLn != nil {
-		s.drains.Add(1)
+		done = make(chan struct{})
+		s.drains = append(s.drains, done)
 	}
 	s.mu.Unlock()
-	s.drainAsync(oldHS, oldLn)
+	s.drainAsync(oldHS, oldLn, done)
 	go func() { _ = serveResult(hs.Serve(ln)) }()
 	return nil
 }
 
-// drainAsync closes ln before it returns and drains hs in the background.
-// The caller already called s.drains.Add when hs or ln is non-nil.
+// drainAsync closes ln before it returns and drains hs in the background
+// for up to rebindDrainTimeout. done was created under s.mu in the same
+// critical section that detached hs and ln, so a Shutdown that runs after
+// that section sees the drain. done is nil only when both are nil. A nil
+// server with a live listener closes that listener and finishes done
+// before returning.
+//
 // http.Server.Shutdown sets inShutdown and closes tracked listeners before
 // its RegisterOnShutdown hooks run, so waiting for the hook and then closing
 // ln refuses new connections without Serve returning "use of closed network
-// connection".
-func (s *Server) drainAsync(hs *http.Server, ln net.Listener) {
+// connection". A timed-out drain calls Close. That still finishes done.
+//
+// net/http runs every onShutdown hook again on each later Shutdown of the
+// same *http.Server. sync.Once keeps close(ready) from running twice.
+func (s *Server) drainAsync(hs *http.Server, ln net.Listener, done chan struct{}) {
 	if hs == nil && ln == nil {
 		return
 	}
 	if hs == nil {
 		_ = ln.Close()
-		s.drains.Done()
+		s.finishDrain(done)
 		return
 	}
 	var once sync.Once
@@ -288,7 +304,7 @@ func (s *Server) drainAsync(hs *http.Server, ln net.Listener) {
 		once.Do(func() { close(ready) })
 	})
 	go func() {
-		defer s.drains.Done()
+		defer s.finishDrain(done)
 		ctx, cancel := context.WithTimeout(context.Background(), rebindDrainTimeout)
 		defer cancel()
 		if err := hs.Shutdown(ctx); err != nil {
@@ -299,6 +315,23 @@ func (s *Server) drainAsync(hs *http.Server, ln net.Listener) {
 	if ln != nil {
 		_ = ln.Close()
 	}
+}
+
+// finishDrain drops done from the in-flight set, then closes it so a
+// Shutdown that already copied the slice still wakes. Exactly once.
+func (s *Server) finishDrain(done chan struct{}) {
+	if done == nil {
+		return
+	}
+	s.mu.Lock()
+	for i, ch := range s.drains {
+		if ch == done {
+			s.drains = append(s.drains[:i], s.drains[i+1:]...)
+			break
+		}
+	}
+	s.mu.Unlock()
+	close(done)
 }
 
 // Bound reports whether a listener is accepting.
@@ -312,7 +345,9 @@ func (s *Server) Bound() bool {
 }
 
 // Shutdown closes the listener and waits for in-flight requests.
-// It also waits for background rebind drains, bounded by ctx.
+// It also waits for background rebind drains already started, bounded by ctx.
+// If ctx ends first, Shutdown returns ctx.Err() and does not wait out the drain.
+// An error from the current server takes precedence over the drain wait.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.closed.Store(true)
 	s.mu.Lock()
@@ -331,26 +366,38 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return err
 }
 
+// waitDrains waits for background drains already started when it is called.
+// It snapshots the set under s.mu and does not hold that lock while waiting.
+// A drain that finishes before the snapshot is already gone. If ctx ends
+// first, waitDrains returns ctx.Err().
 func (s *Server) waitDrains(ctx context.Context) error {
-	done := make(chan struct{})
-	go func() {
-		s.drains.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	s.mu.Lock()
+	pending := append([]chan struct{}(nil), s.drains...)
+	s.mu.Unlock()
+	for _, done := range pending {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-done:
+		}
 	}
+	return nil
 }
 
 // Addr returns the bound address after Serve, or the configured listen address.
+// After Rebind(""), Bound is false and Addr is empty. Shutdown leaves the
+// listener in place, so Addr still returns the address that was bound.
 func (s *Server) Addr() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ln != nil {
 		return s.ln.Addr().String()
+	}
+	if s.addr != "" {
+		return s.addr
+	}
+	if s.closed.Load() {
+		return ""
 	}
 	if s.cfg.Addr != "" {
 		return s.cfg.Addr

@@ -68,6 +68,9 @@ func TestRESTResetRebindsManagementWithoutSelfDrain(t *testing.T) {
 		if env.srv.Bound() {
 			t.Fatal("management still bound after off")
 		}
+		if addr := env.srv.Addr(); addr != "" {
+			t.Fatalf("addr after off %q, want empty", addr)
+		}
 		mustMgmtStatus(t, env.svc, "off")
 		mustRefused(t, env.addr)
 		env.wantOriginalServeDone(t)

@@ -25,7 +25,9 @@ query log, never writes the file, and rebinds NTP/HTTP per D8
 (bind-new-first). Management HTTP serves on the new listener first, closes
 the old listener immediately, and drains the old server in the background
 for up to 5s. Turning management off closes immediately and does not wait
-on in-flight requests. A token reread failure returns `validation_failed`
+on in-flight requests. Process shutdown waits for that background drain
+until its timeout. After management is off, its listen address is empty.
+A token reread failure returns `validation_failed`
 before rebind or swap and leaves the previous snapshot, listeners, bearer,
 and cookie sessions in place. A failed management HTTP rebind leaves the
 previous listener and snapshot, and restores the previous NTP address.

@@ -75,6 +75,9 @@ func TestRebindLeavesOldListenerWhenPortIsTaken(t *testing.T) {
 	if s.Bound() {
 		t.Fatal("bound after off")
 	}
+	if addr := s.Addr(); addr != "" {
+		t.Fatalf("addr after off %q, want empty", addr)
+	}
 	if got := dialState(next); got != "refused" {
 		t.Fatalf("off dial %s", got)
 	}
