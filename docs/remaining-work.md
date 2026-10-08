@@ -698,7 +698,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  GO_VERSION: "1.26.6"
+  GO_VERSION: "1.26.8"
   GOTOOLCHAIN: local
   GOPROXY: https://proxy.golang.org,direct
   IMAGE: ghcr.io/hilather/labntp
