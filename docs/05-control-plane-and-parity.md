@@ -27,12 +27,13 @@ before rebind or swap and leaves the previous snapshot, listeners, bearer,
 and cookie sessions in place. A failed management HTTP rebind restores the
 previous NTP address. Management HTTP `bodyLimit`, `requestsPerSecond`,
 `burst`, and `maxConcurrent` take effect on apply and on reset, not only
-at process start. An explicit `bodyLimit: 0`, `requestsPerSecond: 0`, or
-`burst: 0` means the startup default (1 MiB, 32/s, burst 64). A lowered
-`bodyLimit` applies live to REST and `/mcp`, while `/mcp` cannot exceed
-the limit it started with until restart; raising `requestsPerSecond`,
-`burst`, or `maxConcurrent` applies live to REST, but `/mcp`'s own limiter
-keeps its startup ceiling until restart. Flags still win after Reset.
+at process start. An explicit `bodyLimit: 0`, `requestsPerSecond: 0`,
+`burst: 0`, or `maxConcurrent: 0` means the startup default (1 MiB, 32/s,
+burst 64, 256). A lowered `bodyLimit` applies live to REST and `/mcp`,
+while `/mcp` cannot exceed the limit it started with until restart; raising
+`requestsPerSecond`, `burst`, or `maxConcurrent` applies live to REST, but
+`/mcp`'s own limiter keeps its startup ceiling until restart. Flags still
+win after Reset.
 
 ## Parity
 
