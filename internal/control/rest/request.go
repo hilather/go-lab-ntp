@@ -23,7 +23,7 @@ func (s *Server) decodeJSON(w http.ResponseWriter, r *http.Request, instance str
 }
 
 func (s *Server) decodeJSONOptional(w http.ResponseWriter, r *http.Request, instance string, dst any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, s.maxBody)
+	r.Body = http.MaxBytesReader(w, r.Body, s.maxBody.Load())
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		s.writeProblem(w, r, instance, decodeError(err))
@@ -40,7 +40,7 @@ func (s *Server) decodeJSONOptional(w http.ResponseWriter, r *http.Request, inst
 }
 
 func (s *Server) decodeJSONBody(w http.ResponseWriter, r *http.Request, instance string, dst any, required bool) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, s.maxBody)
+	r.Body = http.MaxBytesReader(w, r.Body, s.maxBody.Load())
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		s.writeProblem(w, r, instance, decodeError(err))

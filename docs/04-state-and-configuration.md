@@ -84,4 +84,8 @@ management HTTP when the effective listen address changed (bind-new-first).
 A token reread failure returns `validation_failed` before rebind or swap.
 A successful reread still replaces the verifier and clears sessions when
 the identity changes. A failed management HTTP rebind restores the previous
-NTP address, and the active snapshot stays unchanged.
+NTP address, and the active snapshot stays unchanged. Management HTTP
+`bodyLimit`, `requestsPerSecond`, `burst`, and `maxConcurrent` are applied
+to the running server on apply and on reset, not only at process start.
+An explicit `requestsPerSecond: 0` or `burst: 0` means the startup default
+(32/s, burst 64).

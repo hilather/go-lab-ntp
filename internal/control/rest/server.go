@@ -68,19 +68,20 @@ type Server struct {
 	svc      app.Service
 	routes   []compiledRoute
 	handler  http.Handler
-	maxBody  int64
+	maxBody  atomic.Int64
 	timeout  time.Duration
-	inflight chan struct{}
+	inflight inflightGate
 	rate     *limiter
 	metrics  *observability.Registry
 	logger   *observability.Logger
 	mounts   *http.ServeMux
 
-	mu     sync.Mutex
-	http   *http.Server
-	ln     net.Listener
-	closed atomic.Bool
-	addr   string
+	limitsMu sync.Mutex
+	mu       sync.Mutex
+	http     *http.Server
+	ln       net.Listener
+	closed   atomic.Bool
+	addr     string
 }
 
 // New builds a Server. Routes come from the frozen capability registry.
@@ -112,21 +113,23 @@ func New(cfg Config) (*Server, error) {
 		})
 	}
 	s := &Server{
-		cfg:      cfg,
-		svc:      cfg.Service,
-		routes:   compileRoutes(capabilities.All()),
-		maxBody:  maxBody,
-		timeout:  timeout,
-		inflight: make(chan struct{}, n),
-		rate:     newLimiter(cfg.RatePerSec, cfg.RateBurst),
-		metrics:  cfg.Metrics,
-		logger:   cfg.Logger,
-		addr:     cfg.Addr,
+		cfg:     cfg,
+		svc:     cfg.Service,
+		routes:  compileRoutes(capabilities.All()),
+		timeout: timeout,
+		rate:    newLimiter(cfg.RatePerSec, cfg.RateBurst),
+		metrics: cfg.Metrics,
+		logger:  cfg.Logger,
+		addr:    cfg.Addr,
 	}
+	s.maxBody.Store(maxBody)
+	s.inflight.setMax(n)
 	if appSvc, ok := s.svc.(*app.App); ok {
 		appSvc.OnAuthPreflight(preflightAuth)
 		appSvc.OnReset(s.reloadAuth)
 		appSvc.OnApply(s.reloadAuth)
+		appSvc.OnReset(s.syncManagementLimits)
+		appSvc.OnApply(s.syncManagementLimits)
 	}
 	if len(cfg.Mounts) > 0 {
 		mux := http.NewServeMux()
@@ -299,13 +302,11 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	select {
-	case s.inflight <- struct{}{}:
-		defer func() { <-s.inflight }()
-	default:
+	if !s.inflight.acquire() {
 		s.writeProblem(w, r, instance, domainerr.RateLimited("too many concurrent management requests"))
 		return
 	}
+	defer s.inflight.release()
 
 	ctx := r.Context()
 	var cancel context.CancelFunc
@@ -496,16 +497,96 @@ func (w *statusWriter) status() int {
 	return w.code
 }
 
+// inflightMax is the current concurrency cap.
+func (s *Server) inflightMax() int {
+	if s == nil {
+		return 0
+	}
+	return s.inflight.getMax()
+}
+
+// syncManagementLimits publishes the active snapshot's HTTP limits. The
+// mutex is taken before Active so overlapping apply and reset hooks cannot
+// store an older snapshot after a newer one.
+func (s *Server) syncManagementLimits() {
+	if s == nil {
+		return
+	}
+	s.limitsMu.Lock()
+	defer s.limitsMu.Unlock()
+	appSvc, ok := s.svc.(*app.App)
+	if !ok {
+		return
+	}
+	snap := appSvc.Active()
+	if snap == nil || snap.Canonical == nil {
+		return
+	}
+	m := snap.Canonical.Spec.Management
+	s.ApplyLimits(m.BodyLimit, m.RequestsPerSecond, m.Burst, m.MaxConcurrent)
+}
+
 // ApplyLimits updates live management HTTP admission knobs.
 func (s *Server) ApplyLimits(bodyLimit int64, rps, burst, maxConcurrent int) {
 	if s == nil {
 		return
 	}
 	if bodyLimit > 0 {
-		s.maxBody = bodyLimit
+		s.maxBody.Store(bodyLimit)
 	}
-	if rps != 0 || burst != 0 {
-		s.rate = newLimiter(float64(rps), float64(burst))
+	s.rate.setRate(float64(rps), float64(burst))
+	n := maxConcurrent
+	if n <= 0 {
+		n = DefaultMaxConcurrent
 	}
-	_ = maxConcurrent
+	s.inflight.setMax(n)
+}
+
+// inflightGate counts in-flight management requests. acquire does not wait.
+type inflightGate struct {
+	mu  sync.Mutex
+	cur int
+	max int
+}
+
+func (g *inflightGate) acquire() bool {
+	if g == nil {
+		return false
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.max > 0 && g.cur >= g.max {
+		return false
+	}
+	g.cur++
+	return true
+}
+
+func (g *inflightGate) release() {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.cur > 0 {
+		g.cur--
+	}
+}
+
+func (g *inflightGate) setMax(n int) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	g.max = n
+	g.mu.Unlock()
+}
+
+func (g *inflightGate) getMax() int {
+	if g == nil {
+		return 0
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.max
 }

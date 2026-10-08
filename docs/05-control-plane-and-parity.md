@@ -25,7 +25,10 @@ query log, never writes the file, and rebinds NTP/HTTP per D8
 (bind-new-first). A token reread failure returns `validation_failed`
 before rebind or swap and leaves the previous snapshot, listeners, bearer,
 and cookie sessions in place. A failed management HTTP rebind restores the
-previous NTP address. Flags still win after Reset.
+previous NTP address. Management HTTP `bodyLimit`, `requestsPerSecond`,
+`burst`, and `maxConcurrent` take effect on apply and on reset, not only
+at process start. An explicit `requestsPerSecond: 0` or `burst: 0` means
+the startup default (32/s, burst 64). Flags still win after Reset.
 
 ## Parity
 
