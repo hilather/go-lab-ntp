@@ -21,6 +21,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 - Management HTTP `bodyLimit`, `requestsPerSecond`, `burst`, and `maxConcurrent` take effect on apply and on reset.
 - REST mutation JSON rejects unknown fields.
 - NTP per-IP and limited buckets, and the MCP management per-remote buckets, evict idle keys and stay capped.
+- Tag release CI must be the green push for that tag and SHA. A green main or pull-request run of the same commit does not pass the gate. The tag name is passed into the release script as an environment variable.
 
 ### Removed or deprecated
 

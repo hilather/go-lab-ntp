@@ -27,6 +27,15 @@ Tag-triggered workflow [`.github/workflows/release.yml`](../.github/workflows/re
 - Platform `linux/amd64`. Provenance + SBOM on.
 - **Digest is the integrator pin**, not the `sha-*` tag.
 - `workflow_dispatch` re-gates only; it does not push GHCR.
+- CI runs on `v*` tags. The gate requires that tag's own completed push
+  run (`headBranch` equals the tag, same SHA). A green main or pull-request
+  run of the same commit does not pass. The tag name is an environment
+  variable in the release script, not a shell interpolation. A timed-out
+  tag gate is re-run on the push workflow; dispatch re-gates but does not
+  publish. The changelog job on a tag push diffs `origin/main`. That diff
+  is empty only when the tagged commit matches `origin/main`'s tree. Normal
+  releases tag current main. Tagging an older commit can fail the changelog
+  job.
 
 First push may create a private package. A human may need to mark
 `ghcr.io/hilather/labntp` public in the org UI so the integrator can pull
