@@ -17,6 +17,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 - Duration formatting no longer crashes on the minimum signed duration. View durations that `time.ParseDuration` cannot represent are rejected.
 - Reset does not install a bootstrap whose bearer secret file cannot be read or whose bearer list is empty while management auth is attached. The previous snapshot, listeners, bearer, and cookie sessions stay.
 - `labntp mcp-stdio` re-resolves the startup token against the current verifier on each tool call. Demoting or removing that token drops administrator scope.
+- A failed reset rolls the NTP listener back if management HTTP rebind fails. The active snapshot is unchanged.
 
 ### Removed or deprecated
 

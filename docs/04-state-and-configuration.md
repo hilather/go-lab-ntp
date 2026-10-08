@@ -83,4 +83,5 @@ always win over YAML on serve and Reset.
 management HTTP when the effective listen address changed (bind-new-first).
 A token reread failure returns `validation_failed` before rebind or swap.
 A successful reread still replaces the verifier and clears sessions when
-the identity changes.
+the identity changes. A failed management HTTP rebind restores the previous
+NTP address, and the active snapshot stays unchanged.

@@ -65,13 +65,20 @@ func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyR
 		}
 	}
 
+	ntpMoved := false
 	if s.ntpRebind != nil && newNTP != "" && newNTP != oldNTP {
 		if err := s.ntpRebind(newNTP); err != nil {
 			return nil, nil, asDomain(err)
 		}
+		ntpMoved = true
 	}
 	if s.httpRebind != nil && newMgmt != oldMgmt {
 		if err := s.httpRebind(newMgmt); err != nil {
+			if ntpMoved {
+				if rbErr := s.ntpRebind(oldNTP); rbErr != nil {
+					return nil, nil, domainerr.Internal(err.Error() + "; ntp rollback: " + rbErr.Error())
+				}
+			}
 			return nil, nil, asDomain(err)
 		}
 	}

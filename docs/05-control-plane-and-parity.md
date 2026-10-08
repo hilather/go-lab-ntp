@@ -24,7 +24,8 @@ feature ids; `spec.ui.enabled` is not a catalog row.
 query log, never writes the file, and rebinds NTP/HTTP per D8
 (bind-new-first). A token reread failure returns `validation_failed`
 before rebind or swap and leaves the previous snapshot, listeners, bearer,
-and cookie sessions in place. Flags still win after Reset.
+and cookie sessions in place. A failed management HTTP rebind restores the
+previous NTP address. Flags still win after Reset.
 
 ## Parity
 
