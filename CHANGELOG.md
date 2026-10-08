@@ -18,7 +18,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 - Reset does not install a bootstrap whose bearer secret file cannot be read or whose bearer list is empty while management auth is attached. The previous snapshot, listeners, bearer, and cookie sessions stay.
 - `labntp mcp-stdio` re-resolves the startup token against the current verifier on each tool call. Demoting or removing that token drops administrator scope.
 - A failed reset rolls the NTP listener back if management HTTP rebind fails. The active snapshot is unchanged.
-- Management HTTP `bodyLimit`, `requestsPerSecond`, `burst`, and `maxConcurrent` take effect on apply and on reset.
+- Management HTTP `bodyLimit`, `requestsPerSecond`, `burst`, and `maxConcurrent` take effect on apply and on reset. A lowered `bodyLimit` applies live to REST and `/mcp`. `/mcp` cannot exceed the body limit it started with until restart. Raising `requestsPerSecond`, `burst`, or `maxConcurrent` applies live to REST; `/mcp`'s own limiter keeps its startup ceiling until restart. An explicit `bodyLimit: 0` means the startup default (1 MiB).
 - REST mutation JSON rejects unknown fields.
 - NTP per-IP and limited buckets, and the MCP management per-remote buckets, evict idle keys and stay capped.
 - Tag release CI must be the green push for that tag and SHA. A green main or pull-request run of the same commit does not pass the gate. The tag name is passed into the release script as an environment variable.

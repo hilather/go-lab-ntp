@@ -428,6 +428,12 @@ func (s *Server) dispatchMount(w http.ResponseWriter, r *http.Request, instance 
 		s.writeProblem(w, r, instance, err)
 		return true
 	}
+	// Same live ceiling REST JSON decode uses. The mounted MCP handler
+	// still has its own startup MaxRequestBodyBytes, so a raise above
+	// that ceiling does not take effect until restart.
+	if r.Body != nil {
+		r.Body = http.MaxBytesReader(w, r.Body, s.maxBody.Load())
+	}
 	h.ServeHTTP(w, r)
 	return true
 }
@@ -531,9 +537,10 @@ func (s *Server) ApplyLimits(bodyLimit int64, rps, burst, maxConcurrent int) {
 	if s == nil {
 		return
 	}
-	if bodyLimit > 0 {
-		s.maxBody.Store(bodyLimit)
+	if bodyLimit <= 0 {
+		bodyLimit = DefaultMaxBodyBytes
 	}
+	s.maxBody.Store(bodyLimit)
 	s.rate.setRate(float64(rps), float64(burst))
 	n := maxConcurrent
 	if n <= 0 {
