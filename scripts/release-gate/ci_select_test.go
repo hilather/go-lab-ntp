@@ -88,6 +88,16 @@ func TestRequireCIPendingTagRun(t *testing.T) {
 	}
 }
 
+// An older in-progress tag run must not block a newer completed green one.
+func TestRequireCIOlderInProgressDoesNotBlockNewerGreen(t *testing.T) {
+	list := `[{"databaseId":11,"conclusion":"","status":"in_progress","headSha":"abc","event":"push","headBranch":"v1.2.3"},{"databaseId":22,"conclusion":"success","status":"completed","headSha":"abc","event":"push","headBranch":"v1.2.3"}]`
+	installFakeGH(t, list, "cat <<'EOF'\n"+greenJobsJSON+"\nEOF\nexit 0\n")
+	setTagEnv(t)
+	if err := requireGreenCI(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestResolveTag(t *testing.T) {
 	cases := []struct {
 		ref  string

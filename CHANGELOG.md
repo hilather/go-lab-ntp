@@ -21,7 +21,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 - Management HTTP `bodyLimit`, `requestsPerSecond`, `burst`, and `maxConcurrent` take effect on apply and on reset. A lowered `bodyLimit` applies live to REST and `/mcp`. `/mcp` cannot exceed the body limit it started with until restart. Raising `requestsPerSecond`, `burst`, or `maxConcurrent` applies live to REST; `/mcp`'s own limiter keeps its startup ceiling until restart. An explicit `bodyLimit: 0` means the startup default (1 MiB).
 - REST mutation JSON rejects unknown fields.
 - NTP per-IP and limited buckets, and the MCP management per-remote buckets, evict idle keys and stay capped.
-- Tag release CI must be the green push for that tag and SHA. A green main or pull-request run of the same commit does not pass the gate. The tag name is passed into the release script as an environment variable.
+- Tag release CI must be the green push for that tag and SHA. A green main or pull-request run of the same commit does not pass the gate. The tag name is passed into the release script as an environment variable. Only the newest matching tag push is judged; an older queued or in-progress run does not block a newer completed green run.
 - Raise `golang.org/x/sys` from v0.41.0 to v0.47.0, past advisory GO-2026-5024 (fixed in v0.44.0). govulncheck found it in a required module only; no LabNTP code path called it.
 
 ### Removed or deprecated

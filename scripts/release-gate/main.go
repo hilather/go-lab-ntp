@@ -140,24 +140,18 @@ func requireGreenCI() error {
 	if len(matched) == 0 {
 		return fmt.Errorf("no matching run for tag %s commit %s", tag, sha)
 	}
-	pending := false
-	id := 0
-	for _, r := range matched {
-		if r.status != "completed" {
-			pending = true
-			continue
-		}
-		if r.id > id {
-			id = r.id
+	// Judge only the highest databaseId. An older queued or in-progress
+	// run must not block a newer completed green run.
+	best := matched[0]
+	for _, r := range matched[1:] {
+		if r.id > best.id {
+			best = r
 		}
 	}
-	if pending {
+	if best.status != "completed" {
 		return fmt.Errorf("pending CI run for tag %s", tag)
 	}
-	if id == 0 {
-		return fmt.Errorf("no matching run for tag %s commit %s", tag, sha)
-	}
-	view := exec.Command("gh", "run", "view", fmt.Sprintf("%d", id), "--json", "jobs")
+	view := exec.Command("gh", "run", "view", fmt.Sprintf("%d", best.id), "--json", "jobs")
 	jobJSON, err := view.Output()
 	if err != nil {
 		return fmt.Errorf("gh run view: %w", err)
