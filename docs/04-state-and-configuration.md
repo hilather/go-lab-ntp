@@ -50,7 +50,8 @@ YAML view wire names keep `minpoll`, `maxpoll`, `refid` (ADR 0003).
    rewrites to 1048576; bare `1048576` is also accepted.
 2. `config.Normalize` — materialize defaults. Duration strings → `time.Duration`
    for `offset`, `rootDelay`, `rootDispersion`, `jitter`. Bare `offset: 5`
-   is rejected.
+   is rejected. Values outside `time.ParseDuration`, including the minimum
+   signed duration, are invalid.
 3. `config.Validate` — catch-all, CIDRs, forbidden-field matrix, stratum 1–16,
    leap enum, finite `|rate| ≤ 100`, `minpoll <= maxpoll` in `[-6, 17]`,
    `nts.enabled` must be false, reserved keys (`chrony`, `ntpd`, `timesyncd`,

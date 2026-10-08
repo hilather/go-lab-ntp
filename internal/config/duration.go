@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"math"
 	"strconv"
 	"time"
 
@@ -106,9 +107,14 @@ func jsonNumberDuration(v any) (time.Duration, bool) {
 }
 
 // FormatDuration is the canonical duration spelling used in export and hashes.
+// math.MinInt64 is formatted from a uint64 magnitude. Negating that value is
+// a no-op, and converting the magnitude back to time.Duration overflows.
 func FormatDuration(d time.Duration) string {
 	if d == 0 {
 		return "0s"
+	}
+	if d == time.Duration(math.MinInt64) {
+		return "-" + formatUintDuration(uint64(1)<<63)
 	}
 	if d < 0 {
 		return "-" + FormatDuration(-d)
@@ -129,4 +135,28 @@ func FormatDuration(d time.Duration) string {
 		return strconv.FormatInt(int64(d/time.Microsecond), 10) + "us"
 	}
 	return strconv.FormatInt(int64(d), 10) + "ns"
+}
+
+// formatUintDuration is the positive unit cascade for a nanosecond magnitude
+// that does not fit in time.Duration. It never converts n back to time.Duration.
+func formatUintDuration(n uint64) string {
+	if n == 0 {
+		return "0s"
+	}
+	if n%uint64(time.Hour) == 0 {
+		return strconv.FormatUint(n/uint64(time.Hour), 10) + "h"
+	}
+	if n%uint64(time.Minute) == 0 {
+		return strconv.FormatUint(n/uint64(time.Minute), 10) + "m"
+	}
+	if n%uint64(time.Second) == 0 {
+		return strconv.FormatUint(n/uint64(time.Second), 10) + "s"
+	}
+	if n%uint64(time.Millisecond) == 0 {
+		return strconv.FormatUint(n/uint64(time.Millisecond), 10) + "ms"
+	}
+	if n%uint64(time.Microsecond) == 0 {
+		return strconv.FormatUint(n/uint64(time.Microsecond), 10) + "us"
+	}
+	return strconv.FormatUint(n, 10) + "ns"
 }

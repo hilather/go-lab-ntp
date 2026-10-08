@@ -14,7 +14,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
-- None.
+- Duration formatting no longer crashes on the minimum signed duration. View durations that `time.ParseDuration` cannot represent are rejected.
 
 ### Removed or deprecated
 

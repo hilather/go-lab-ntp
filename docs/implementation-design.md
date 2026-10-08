@@ -360,7 +360,7 @@ Let `t = Clock.Now()`. Wall UTC used in follow-real/offset: `tWall = t.UTC()`. E
 | Mode | Required | Forbidden if present | `served(t)` |
 |---|---|---|---|
 | `follow-real` | — | `offset`, `absolute`, `freezeAt`, `rate`, `epoch` | `tWall` |
-| `offset` | — (`offset` may be omitted and materializes `0s`; explicit negative/positive/zero duration all legal) | `absolute`, `freezeAt`, `rate`, `epoch` | `tWall + offset` |
+| `offset` | — (`offset` may be omitted and materializes `0s`; explicit negative/positive/zero duration all legal, except the unspellable minimum `math.MinInt64` nanoseconds, which is invalid) | `absolute`, `freezeAt`, `rate`, `epoch` | `tWall + offset` |
 | `absolute` | `absolute` (RFC3339) | `offset`, `freezeAt`, `rate`, `epoch` | `absolute + elapsed` |
 | `freeze` | `freezeAt` (RFC3339) | `offset`, `absolute`, `rate`, `epoch` | `freezeAt` |
 | `rate` | `rate` key **present** (`*float64` non-nil; finite, including `0` and negative; `\|rate\| ≤ 100`) | `offset`, `absolute`, `freezeAt` | `epochVirtual + saturatingDuration(elapsed * rate)` then D25 clamp |
