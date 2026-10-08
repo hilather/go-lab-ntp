@@ -80,8 +80,10 @@ func (s *Server) decodeBytes(w http.ResponseWriter, r *http.Request, instance st
 		s.writeProblem(w, r, instance, domainerr.Internal("internal error"))
 		return false
 	}
-	if err := json.Unmarshal(rewritten, dst); err != nil {
-		s.writeProblem(w, r, instance, decodeError(err))
+	dec = json.NewDecoder(bytes.NewReader(rewritten))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		s.writeProblem(w, r, instance, mapMutationDecodeError(err))
 		return false
 	}
 	return true
@@ -99,6 +101,25 @@ func (s *Server) checkJSONContentType(r *http.Request) error {
 			domainerr.FieldViolation{Path: "content-type", Code: "invalid_value", Message: "expected application/json"})
 	}
 	return nil
+}
+
+// mapMutationDecodeError matches config.mapJSONDecodeError for unknown fields.
+func mapMutationDecodeError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "unknown field") {
+		field := msg
+		if i := strings.Index(msg, `"`); i >= 0 {
+			if j := strings.LastIndex(msg, `"`); j > i {
+				field = msg[i+1 : j]
+			}
+		}
+		return domainerr.ValidationFailed("unknown fields",
+			domainerr.FieldViolation{Path: field, Code: "unknown_field", Message: "unknown field"})
+	}
+	return decodeError(err)
 }
 
 func decodeError(err error) error {

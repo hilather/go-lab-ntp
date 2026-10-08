@@ -19,6 +19,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 - `labntp mcp-stdio` re-resolves the startup token against the current verifier on each tool call. Demoting or removing that token drops administrator scope.
 - A failed reset rolls the NTP listener back if management HTTP rebind fails. The active snapshot is unchanged.
 - Management HTTP `bodyLimit`, `requestsPerSecond`, `burst`, and `maxConcurrent` take effect on apply and on reset.
+- REST mutation JSON rejects unknown fields.
 
 ### Removed or deprecated
 

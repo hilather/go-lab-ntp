@@ -18,7 +18,8 @@ Authenticated: version, capabilities, status, schema, features, state
 preview, queries, audit, session, optional `/v1/metrics`.
 
 Mutations require `expectedRevision` except session. Idempotency-Key is
-honored on apply.
+honored on apply. Mutation bodies are one JSON object; unknown fields are
+`400 validation_failed`.
 
 Session cookie is `labntp_session`; CSRF header is `X-LabNTP-CSRF`.
 Authorization Basic is rejected (401 Bearer).
