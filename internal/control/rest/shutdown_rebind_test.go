@@ -14,7 +14,9 @@ import (
 
 // TestShutdownWaitsForDetachedDrain is the process-exit grace: after
 // Rebind detaches a server, Shutdown waits for that background drain
-// and stops when ctx ends.
+// and stops when ctx ends. It already passed on 690d312, where
+// Shutdown waited on the WaitGroup. It is a regression guard for the
+// channel-based drain tracking, not a red-before-fix test.
 func TestShutdownWaitsForDetachedDrain(t *testing.T) {
 	t.Run("waits for the in-flight request", func(t *testing.T) {
 		srv, release := startHoldServer(t)
@@ -64,6 +66,62 @@ func TestShutdownWaitsForDetachedDrain(t *testing.T) {
 			t.Fatalf("Shutdown err %v, want context.Canceled", err)
 		}
 	})
+}
+
+// TestAddrAfterShutdownKeepsBoundAddress pins Addr after a normal
+// process Shutdown. Serve binds 127.0.0.1:0 and nothing calls Rebind.
+// Shutdown leaves the listener in place, so Bound is false and Addr
+// is still the address that was bound. That address is not empty and
+// is not Config.Addr or DefaultAddr. Rebind("") is the path that
+// clears Addr. This passes on the current code; it pins existing
+// behavior.
+func TestAddrAfterShutdownKeepsBoundAddress(t *testing.T) {
+	svc := bootTestApp(t)
+	s, err := New(Config{
+		Service:    svc,
+		RatePerSec: -1,
+		Addr:       DefaultAddr,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln := listenLocal(t)
+	bound := ln.Addr().String()
+	if bound == "" || bound == s.cfg.Addr || bound == DefaultAddr {
+		t.Fatalf("bound address %q is not distinct from Config.Addr or DefaultAddr", bound)
+	}
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- s.Serve(ln) }()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = s.Shutdown(ctx)
+	})
+	waitBound(t, s)
+	if got := s.Addr(); got != bound {
+		t.Fatalf("Addr while bound %q, want %q", got, bound)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := s.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-serveErr:
+		if err != nil {
+			t.Fatalf("Serve: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not return after Shutdown")
+	}
+	if s.Bound() {
+		t.Fatal("Bound after Shutdown")
+	}
+	got := s.Addr()
+	if got != bound || got == "" || got == s.cfg.Addr || got == DefaultAddr {
+		t.Fatalf("Addr after Shutdown %q, want %q", got, bound)
+	}
 }
 
 // TestRebindShutdownOverlapNoPanic overlaps Rebind and Shutdown.
