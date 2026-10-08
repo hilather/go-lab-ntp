@@ -81,3 +81,6 @@ always win over YAML on serve and Reset.
 
 `app.Service` Plan/Apply/Reset implements this split. Reset rebinds NTP and
 management HTTP when the effective listen address changed (bind-new-first).
+A token reread failure returns `validation_failed` before rebind or swap.
+A successful reread still replaces the verifier and clears sessions when
+the identity changes.

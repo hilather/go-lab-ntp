@@ -12,6 +12,7 @@ import (
 	"github.com/hilather/go-lab-ntp/internal/compiler"
 	"github.com/hilather/go-lab-ntp/internal/config"
 	"github.com/hilather/go-lab-ntp/internal/domainerr"
+	"github.com/hilather/go-lab-ntp/internal/model"
 	"github.com/hilather/go-lab-ntp/internal/ntpview"
 	"github.com/hilather/go-lab-ntp/internal/observability"
 	"github.com/hilather/go-lab-ntp/internal/querylog"
@@ -52,6 +53,7 @@ type App struct {
 	audit         *audit.Fanout
 	resetHooks    []func()
 	applyHooks    []func()
+	authPreflight []func(model.AuthSpec) error
 	metrics       *observability.Registry
 	logger        *observability.Logger
 	queryLog      *querylog.Ring
@@ -190,6 +192,18 @@ func (s *App) SetHTTPRebind(fn func(addr string) error) {
 		return
 	}
 	s.httpRebind = fn
+}
+
+// OnAuthPreflight registers a check run inside Reset, under s.mu, after the
+// bootstrap candidate compiles and before rebind or swap. The registrar
+// itself takes s.mu and must not be called from resetLocked.
+func (s *App) OnAuthPreflight(fn func(model.AuthSpec) error) {
+	if s == nil || fn == nil {
+		return
+	}
+	s.mu.Lock()
+	s.authPreflight = append(s.authPreflight, fn)
+	s.mu.Unlock()
 }
 
 // OnReset registers a hook fired after a successful Reset (outside the mutex).

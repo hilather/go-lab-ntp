@@ -57,6 +57,14 @@ func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyR
 	newNTP := effectiveNTP(s.ntpOverride, next.NTPAddress)
 	newMgmt := effectiveMgmt(s.mgmtOverride, next.ManagementAddress)
 
+	if next.Canonical != nil {
+		for _, fn := range s.authPreflight {
+			if err := fn(next.Canonical.Spec.Auth); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+
 	if s.ntpRebind != nil && newNTP != "" && newNTP != oldNTP {
 		if err := s.ntpRebind(newNTP); err != nil {
 			return nil, nil, asDomain(err)

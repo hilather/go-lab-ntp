@@ -22,7 +22,9 @@ feature ids; `spec.ui.enabled` is not a catalog row.
 `apply: reset-only`. Apply cannot change listen addresses, `ntp.nts`,
 `ntp.symmetricKeys`, or `spec.auth`. Reset rereads bootstrap, wipes the
 query log, never writes the file, and rebinds NTP/HTTP per D8
-(bind-new-first). Flags still win after Reset.
+(bind-new-first). A token reread failure returns `validation_failed`
+before rebind or swap and leaves the previous snapshot, listeners, bearer,
+and cookie sessions in place. Flags still win after Reset.
 
 ## Parity
 

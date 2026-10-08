@@ -15,6 +15,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 ### Fixed
 
 - Duration formatting no longer crashes on the minimum signed duration. View durations that `time.ParseDuration` cannot represent are rejected.
+- Reset does not install a bootstrap whose bearer secret file cannot be read or whose bearer list is empty while management auth is attached. The previous snapshot, listeners, bearer, and cookie sessions stay.
 
 ### Removed or deprecated
 

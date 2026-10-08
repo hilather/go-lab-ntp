@@ -16,6 +16,7 @@ import (
 	"github.com/hilather/go-lab-ntp/internal/capabilities"
 	"github.com/hilather/go-lab-ntp/internal/config"
 	"github.com/hilather/go-lab-ntp/internal/domainerr"
+	"github.com/hilather/go-lab-ntp/internal/model"
 	"github.com/hilather/go-lab-ntp/internal/observability"
 )
 
@@ -123,6 +124,7 @@ func New(cfg Config) (*Server, error) {
 		addr:     cfg.Addr,
 	}
 	if appSvc, ok := s.svc.(*app.App); ok {
+		appSvc.OnAuthPreflight(preflightAuth)
 		appSvc.OnReset(s.reloadAuth)
 		appSvc.OnApply(s.reloadAuth)
 	}
@@ -354,6 +356,25 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeProblem(w, r, instance, domainerr.NotFound("not found"))
+}
+
+// preflightAuth refuses a reset whose spec.auth the live verifier cannot load.
+// RequireListen's plain error is validation_failed; asDomain would hide it
+// as internal_error.
+func preflightAuth(spec model.AuthSpec) error {
+	next, err := auth.FromSpec(spec)
+	if err != nil {
+		return err
+	}
+	if err := next.RequireListen(); err != nil {
+		return domainerr.ValidationFailed("management auth cannot be loaded",
+			domainerr.FieldViolation{
+				Path:    "spec.auth.tokens",
+				Code:    "invalid_value",
+				Message: err.Error(),
+			})
+	}
+	return nil
 }
 
 func (s *Server) reloadAuth() {
