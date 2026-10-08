@@ -40,6 +40,7 @@ func mcpStdioCmd(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	allowLegacy := false
 	var verifier *auth.Verifier
 	var fixed *app.Actor
+	var secret string
 	if snap := svc.Active(); snap != nil && snap.Canonical != nil {
 		allowLegacy = snap.Canonical.Spec.Management.MCP.AllowLegacyClients
 		v, vErr := auth.FromSpec(snap.Canonical.Spec.Auth)
@@ -57,7 +58,7 @@ func mcpStdioCmd(ctx context.Context, args []string, stdout, stderr io.Writer) i
 			_, _ = fmt.Fprintf(stderr, "labntp mcp-stdio: token-file: %v\n", rErr)
 			return 1
 		}
-		secret := firstSecretLine(raw)
+		secret = firstSecretLine(raw)
 		p, aErr := verifier.AuthenticateBearer(secret)
 		if aErr != nil {
 			_, _ = fmt.Fprintf(stderr, "labntp mcp-stdio: token-file: %v\n", aErr)
@@ -72,6 +73,7 @@ func mcpStdioCmd(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		RatePerSec:         -1,
 		Auth:               verifier,
 		FixedActor:         fixed,
+		StdioSecret:        secret,
 	})
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "labntp mcp-stdio: %v\n", err)

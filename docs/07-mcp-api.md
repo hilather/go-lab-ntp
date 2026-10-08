@@ -10,7 +10,10 @@ Official SDK `github.com/modelcontextprotocol/go-sdk` **v1.7.0**, protocol
 `allowLegacyClients` defaults false; lab overlays may set true.
 
 Tools are `ntp_*`. Resources are `labntp://…`. Bearer-only. MCP must not
-HTTP-call REST. `labntp mcp-stdio` requires `--token-file`.
+HTTP-call REST. `labntp mcp-stdio` requires `--token-file`. It keeps the
+secret read from that file at startup and re-authenticates it against the
+live verifier on every tool call. Rewriting the file does not change the
+running process; restart to pick up a new secret.
 
 Generated tool input schemas must not mark ViewSpec zero-default fields
 required (`precision`, `rootDelay`, `rootDispersion`, `jitter`, omitted

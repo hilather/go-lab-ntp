@@ -56,7 +56,10 @@ type Config struct {
 	MaxConcurrent      int
 	Auth               *auth.Verifier
 	FixedActor         *app.Actor
-	Metrics            *observability.Registry
+	// StdioSecret is the bearer read from --token-file at process start.
+	// Tool calls re-authenticate it; the file is not reread.
+	StdioSecret string
+	Metrics     *observability.Registry
 }
 
 // Server is the official-SDK adapter. Third-party MCP types do not escape it.
@@ -84,6 +87,9 @@ const (
 func New(cfg Config) (*Server, error) {
 	if cfg.Service == nil {
 		return nil, errors.New("mcp: Service is required")
+	}
+	if cfg.FixedActor != nil && cfg.StdioSecret == "" && cfg.Auth != nil {
+		return nil, errors.New("mcp: stdio FixedActor requires StdioSecret")
 	}
 	maxBody := cfg.MaxBodyBytes
 	if maxBody <= 0 {
@@ -248,6 +254,13 @@ func (s *Server) actorFrom(ctx context.Context) app.Actor {
 			a.Transport = "mcp"
 		}
 		return a
+	}
+	if s != nil && s.cfg.StdioSecret != "" && s.cfg.Auth != nil {
+		p, err := s.cfg.Auth.AuthenticateBearer(s.cfg.StdioSecret)
+		if err != nil {
+			return app.Actor{Transport: "mcp"}
+		}
+		return actorOf(p)
 	}
 	if s != nil && s.cfg.FixedActor != nil {
 		out := *s.cfg.FixedActor
