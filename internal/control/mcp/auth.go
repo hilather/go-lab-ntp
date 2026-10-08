@@ -77,6 +77,9 @@ type bucket struct {
 	last   time.Time
 }
 
+// maxManagementBuckets matches ntpserver.DefaultMaxInflight and the regression ceiling.
+const maxManagementBuckets = 1024
+
 func newLimiter(rate, burst float64) *limiter {
 	if rate < 0 {
 		return &limiter{disabled: true}
@@ -101,8 +104,12 @@ func (l *limiter) allow(remote string) error {
 	now := time.Now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.evictIdleLocked(now)
 	b := l.buckets[key]
 	if b == nil {
+		if len(l.buckets) >= maxManagementBuckets {
+			l.evictOldestLocked()
+		}
 		b = &bucket{tokens: l.burst, last: now}
 		l.buckets[key] = b
 	}
@@ -117,4 +124,38 @@ func (l *limiter) allow(remote string) error {
 	}
 	b.tokens--
 	return nil
+}
+
+func (l *limiter) evictIdleLocked(now time.Time) {
+	if l == nil || len(l.buckets) == 0 {
+		return
+	}
+	idleFor := 30 * time.Second
+	if l.rate > 0 {
+		refill := time.Duration(float64(time.Second) * (l.burst / l.rate) * 4)
+		if refill > idleFor {
+			idleFor = refill
+		}
+	}
+	for k, b := range l.buckets {
+		if now.Sub(b.last) > idleFor {
+			delete(l.buckets, k)
+		}
+	}
+}
+
+func (l *limiter) evictOldestLocked() {
+	var oldestKey string
+	var oldest time.Time
+	first := true
+	for k, b := range l.buckets {
+		if first || b.last.Before(oldest) {
+			first = false
+			oldest = b.last
+			oldestKey = k
+		}
+	}
+	if oldestKey != "" {
+		delete(l.buckets, oldestKey)
+	}
 }

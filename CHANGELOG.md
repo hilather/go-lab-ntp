@@ -20,6 +20,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 - A failed reset rolls the NTP listener back if management HTTP rebind fails. The active snapshot is unchanged.
 - Management HTTP `bodyLimit`, `requestsPerSecond`, `burst`, and `maxConcurrent` take effect on apply and on reset.
 - REST mutation JSON rejects unknown fields.
+- NTP per-IP and limited buckets, and the MCP management per-remote buckets, evict idle keys and stay capped.
 
 ### Removed or deprecated
 
