@@ -14,6 +14,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
+- A reset that moves management HTTP or turns it off no longer waits on its own request. The old listener closes at once and the old server drains in the background for up to 5 s, then remaining connections are closed. A drain timeout is no longer reported as a failed rebind.
 - Duration formatting no longer crashes on the minimum signed duration. View durations that `time.ParseDuration` cannot represent are rejected.
 - Reset does not install a bootstrap whose bearer secret file cannot be read or whose bearer list is empty while management auth is attached. The previous snapshot, listeners, bearer, and cookie sessions stay.
 - `labntp mcp-stdio` re-resolves the startup token against the current verifier on each tool call. Demoting or removing that token drops administrator scope.

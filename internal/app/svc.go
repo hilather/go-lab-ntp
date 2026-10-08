@@ -59,6 +59,11 @@ type App struct {
 	queryLog      *querylog.Ring
 	ntpOverride   string
 	mgmtOverride  string
+	// mgmtEffective is the management address installed at boot or by the
+	// last successful reset. Empty is a real value (management off), so
+	// mgmtEffectiveSet distinguishes "not recorded yet".
+	mgmtEffective    string
+	mgmtEffectiveSet bool
 
 	healthMu sync.Mutex
 	health   func() observability.Facts
@@ -92,7 +97,7 @@ func New(opts Options) *App {
 			auditMax = defaultAuditMax
 		}
 	}
-	return &App{
+	app := &App{
 		snaps:         opts.Snapshots,
 		now:           opts.Now,
 		clock:         opts.Clock,
@@ -105,6 +110,11 @@ func New(opts Options) *App {
 		ntpOverride:   opts.NTPListenOverride,
 		mgmtOverride:  opts.MgmtListenOverride,
 	}
+	if snap := app.snaps.Load(); snap != nil {
+		app.mgmtEffective = effectiveMgmt(app.mgmtOverride, snap.ManagementAddress)
+		app.mgmtEffectiveSet = true
+	}
+	return app
 }
 
 // Boot loads bootstrap YAML, compiles a snapshot, and installs it.
@@ -186,7 +196,8 @@ func (s *App) SetNTPRebind(fn func(addr string) error) {
 }
 
 // SetHTTPRebind installs the D8 management HTTP bind-new-first hook.
-// Empty addr means unbind (management off).
+// Empty addr means unbind (management off). A non-nil error means the
+// previous listener is untouched.
 func (s *App) SetHTTPRebind(fn func(addr string) error) {
 	if s == nil {
 		return

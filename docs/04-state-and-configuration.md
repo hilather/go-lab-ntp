@@ -76,15 +76,18 @@ allowClientCidrs, query-log size, management HTTP limits.
 
 Reset-only: listen addresses, `ntp.nts.enabled`, `ntp.symmetricKeys.file`,
 `spec.auth`. Reset rebinds NTP iff the effective listen address (after
-`--ntp-listen`) changed; bind **new first**, then drain/close old. Flags
-always win over YAML on serve and Reset.
+`--ntp-listen`) changed; bind **new first**, then drain/close old. Management
+HTTP serves on the new listener first, closes the old listener immediately,
+and drains the old server in the background for up to 5s. Turning management
+off closes the listener immediately and does not wait on in-flight requests.
+Flags always win over YAML on serve and Reset.
 
 `app.Service` Plan/Apply/Reset implements this split. Reset rebinds NTP and
 management HTTP when the effective listen address changed (bind-new-first).
 A token reread failure returns `validation_failed` before rebind or swap.
 A successful reread still replaces the verifier and clears sessions when
-the identity changes. A failed management HTTP rebind restores the previous
-NTP address, and the active snapshot stays unchanged. Management HTTP
+the identity changes. A failed management HTTP rebind leaves the previous
+listener and snapshot, and restores the previous NTP address. Management HTTP
 `bodyLimit`, `requestsPerSecond`, `burst`, and `maxConcurrent` are applied
 to the running server on apply and on reset, not only at process start.
 An explicit `bodyLimit: 0`, `requestsPerSecond: 0`, `burst: 0`, or

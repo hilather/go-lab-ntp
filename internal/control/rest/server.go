@@ -36,6 +36,10 @@ const (
 	requestURNPrefix         = "urn:labntp:request:"
 )
 
+// rebindDrainTimeout bounds the background drain of the server Rebind
+// replaced. Rebind does not wait for it, and a timeout is not an error.
+const rebindDrainTimeout = 5 * time.Second
+
 // Config constructs a management HTTP server.
 type Config struct {
 	Addr              string
@@ -82,6 +86,8 @@ type Server struct {
 	ln       net.Listener
 	closed   atomic.Bool
 	addr     string
+	// drains counts background rebind drains. Shutdown waits for them.
+	drains sync.WaitGroup
 }
 
 // New builds a Server. Routes come from the frozen capability registry.
@@ -173,21 +179,7 @@ func (s *Server) Serve(ln net.Listener) error {
 		_ = ln.Close()
 		return errors.New("rest: server already started")
 	}
-	rh := s.cfg.ReadHeaderTimeout
-	if rh <= 0 {
-		rh = DefaultReadHeaderTimeout
-	}
-	rt := s.cfg.ReadTimeout
-	if rt <= 0 {
-		rt = DefaultReadTimeout
-	}
-	hs := &http.Server{
-		Handler:           s.Handler(),
-		ReadHeaderTimeout: rh,
-		ReadTimeout:       rt,
-		WriteTimeout:      s.cfg.WriteTimeout,
-		MaxHeaderBytes:    1 << 16,
-	}
+	hs := s.newHTTPServer()
 	s.http = hs
 	s.ln = ln
 	s.addr = ln.Addr().String()
@@ -197,48 +189,116 @@ func (s *Server) Serve(ln net.Listener) error {
 		_ = ln.Close()
 		return nil
 	}
-	err := hs.Serve(ln)
+	return serveResult(hs.Serve(ln))
+}
+
+func (s *Server) newHTTPServer() *http.Server {
+	rh := s.cfg.ReadHeaderTimeout
+	if rh <= 0 {
+		rh = DefaultReadHeaderTimeout
+	}
+	rt := s.cfg.ReadTimeout
+	if rt <= 0 {
+		rt = DefaultReadTimeout
+	}
+	return &http.Server{
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: rh,
+		ReadTimeout:       rt,
+		WriteTimeout:      s.cfg.WriteTimeout,
+		MaxHeaderBytes:    1 << 16,
+	}
+}
+
+// serveResult treats http.ErrServerClosed as a normal stop.
+func serveResult(err error) error {
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
 	return err
 }
 
-// Rebind binds addr first, then drains the old HTTP server. Empty addr unbinds.
+// Rebind moves the management listener to addr, or unbinds when addr is empty.
+// A non-nil error means net.Listen failed and the previous listener is untouched.
+// The old listener is closed before Rebind returns. The old server drains in
+// the background for up to rebindDrainTimeout; that drain is not an error.
 func (s *Server) Rebind(addr string) error {
 	if s == nil {
 		return errors.New("rest: nil server")
 	}
 	s.mu.Lock()
 	cur := s.addr
+	bound := s.ln != nil && s.http != nil && !s.closed.Load()
 	s.mu.Unlock()
-	if addr == "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		return s.Shutdown(ctx)
+	if addr != "" && addr == cur && bound {
+		return nil
 	}
-	if addr == cur && s.Bound() {
+	if addr == "" {
+		s.mu.Lock()
+		oldHS, oldLn := s.http, s.ln
+		s.http = nil
+		s.ln = nil
+		s.addr = ""
+		s.closed.Store(true)
+		if oldHS != nil || oldLn != nil {
+			s.drains.Add(1)
+		}
+		s.mu.Unlock()
+		s.drainAsync(oldHS, oldLn)
 		return nil
 	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
-	old := func() *http.Server {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		hs := s.http
-		s.http = nil
-		s.closed.Store(false)
-		return hs
-	}()
-	if old != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = old.Shutdown(ctx)
-		cancel()
+	hs := s.newHTTPServer()
+	s.mu.Lock()
+	oldHS, oldLn := s.http, s.ln
+	s.http = hs
+	s.ln = ln
+	s.addr = ln.Addr().String()
+	s.closed.Store(false)
+	if oldHS != nil || oldLn != nil {
+		s.drains.Add(1)
 	}
-	go func() { _ = s.Serve(ln) }()
+	s.mu.Unlock()
+	s.drainAsync(oldHS, oldLn)
+	go func() { _ = serveResult(hs.Serve(ln)) }()
 	return nil
+}
+
+// drainAsync closes ln before it returns and drains hs in the background.
+// The caller already called s.drains.Add when hs or ln is non-nil.
+// http.Server.Shutdown sets inShutdown and closes tracked listeners before
+// its RegisterOnShutdown hooks run, so waiting for the hook and then closing
+// ln refuses new connections without Serve returning "use of closed network
+// connection".
+func (s *Server) drainAsync(hs *http.Server, ln net.Listener) {
+	if hs == nil && ln == nil {
+		return
+	}
+	if hs == nil {
+		_ = ln.Close()
+		s.drains.Done()
+		return
+	}
+	var once sync.Once
+	ready := make(chan struct{})
+	hs.RegisterOnShutdown(func() {
+		once.Do(func() { close(ready) })
+	})
+	go func() {
+		defer s.drains.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), rebindDrainTimeout)
+		defer cancel()
+		if err := hs.Shutdown(ctx); err != nil {
+			_ = hs.Close()
+		}
+	}()
+	<-ready
+	if ln != nil {
+		_ = ln.Close()
+	}
 }
 
 // Bound reports whether a listener is accepting.
@@ -252,19 +312,37 @@ func (s *Server) Bound() bool {
 }
 
 // Shutdown closes the listener and waits for in-flight requests.
+// It also waits for background rebind drains, bounded by ctx.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.closed.Store(true)
 	s.mu.Lock()
 	hs := s.http
 	ln := s.ln
 	s.mu.Unlock()
+	var err error
 	if hs != nil {
-		return hs.Shutdown(ctx)
+		err = hs.Shutdown(ctx)
+	} else if ln != nil {
+		err = ln.Close()
 	}
-	if ln != nil {
-		return ln.Close()
+	if werr := s.waitDrains(ctx); err == nil {
+		err = werr
 	}
-	return nil
+	return err
+}
+
+func (s *Server) waitDrains(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		s.drains.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Addr returns the bound address after Serve, or the configured listen address.

@@ -52,7 +52,13 @@ func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyR
 	oldMgmt := ""
 	if prev != nil {
 		oldNTP = effectiveNTP(s.ntpOverride, prev.NTPAddress)
-		oldMgmt = effectiveMgmt(s.mgmtOverride, prev.ManagementAddress)
+		// Installed at boot or the last successful reset. Empty means off.
+		// A constant override still matches the snapshot address.
+		if s.mgmtEffectiveSet {
+			oldMgmt = s.mgmtEffective
+		} else {
+			oldMgmt = effectiveMgmt(s.mgmtOverride, prev.ManagementAddress)
+		}
 	}
 	newNTP := effectiveNTP(s.ntpOverride, next.NTPAddress)
 	newMgmt := effectiveMgmt(s.mgmtOverride, next.ManagementAddress)
@@ -72,6 +78,9 @@ func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyR
 		}
 		ntpMoved = true
 	}
+	// httpRebind returns an error only when the new listen fails before
+	// anything changed. The previous listener is then still serving, and a
+	// drain timeout is not a rebind failure.
 	if s.httpRebind != nil && newMgmt != oldMgmt {
 		if err := s.httpRebind(newMgmt); err != nil {
 			if ntpMoved {
@@ -82,6 +91,8 @@ func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyR
 			return nil, nil, asDomain(err)
 		}
 	}
+	s.mgmtEffective = newMgmt
+	s.mgmtEffectiveSet = true
 
 	if s.queryLog != nil {
 		s.queryLog.Reset()

@@ -22,12 +22,16 @@ feature ids; `spec.ui.enabled` is not a catalog row.
 `apply: reset-only`. Apply cannot change listen addresses, `ntp.nts`,
 `ntp.symmetricKeys`, or `spec.auth`. Reset rereads bootstrap, wipes the
 query log, never writes the file, and rebinds NTP/HTTP per D8
-(bind-new-first). A token reread failure returns `validation_failed`
+(bind-new-first). Management HTTP serves on the new listener first, closes
+the old listener immediately, and drains the old server in the background
+for up to 5s. Turning management off closes immediately and does not wait
+on in-flight requests. A token reread failure returns `validation_failed`
 before rebind or swap and leaves the previous snapshot, listeners, bearer,
-and cookie sessions in place. A failed management HTTP rebind restores the
-previous NTP address. Management HTTP `bodyLimit`, `requestsPerSecond`,
-`burst`, and `maxConcurrent` take effect on apply and on reset, not only
-at process start. An explicit `bodyLimit: 0`, `requestsPerSecond: 0`,
+and cookie sessions in place. A failed management HTTP rebind leaves the
+previous listener and snapshot, and restores the previous NTP address.
+Management HTTP `bodyLimit`, `requestsPerSecond`, `burst`, and
+`maxConcurrent` take effect on apply and on reset, not only at process
+start. An explicit `bodyLimit: 0`, `requestsPerSecond: 0`,
 `burst: 0`, or `maxConcurrent: 0` means the startup default (1 MiB, 32/s,
 burst 64, 256). A lowered `bodyLimit` applies live to REST and `/mcp`,
 while `/mcp` cannot exceed the limit it started with until restart; raising
