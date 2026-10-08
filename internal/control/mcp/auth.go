@@ -147,15 +147,15 @@ func (l *limiter) evictIdleLocked(now time.Time) {
 func (l *limiter) evictOldestLocked() {
 	var oldestKey string
 	var oldest time.Time
-	first := true
+	found := false
 	for k, b := range l.buckets {
-		if first || b.last.Before(oldest) {
-			first = false
+		if !found || b.last.Before(oldest) {
+			found = true
 			oldest = b.last
 			oldestKey = k
 		}
 	}
-	if oldestKey != "" {
+	if found {
 		delete(l.buckets, oldestKey)
 	}
 }
