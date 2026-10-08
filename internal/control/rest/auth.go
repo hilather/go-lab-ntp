@@ -133,6 +133,25 @@ func newLimiter(rate, burst float64) *limiter {
 	return &limiter{rate: rate, burst: burst, buckets: map[string]*bucket{}}
 }
 
+// setRate updates a live limiter. disabled is fixed at construction
+// (RatePerSec < 0) and this method does not change it. Zero and negative
+// snapshot values use the startup defaults.
+func (l *limiter) setRate(rate, burst float64) {
+	if l == nil || l.disabled {
+		return
+	}
+	if rate <= 0 {
+		rate = float64(config.DefaultRequestsPerSecond)
+	}
+	if burst <= 0 {
+		burst = float64(config.DefaultBurst)
+	}
+	l.mu.Lock()
+	l.rate = rate
+	l.burst = burst
+	l.mu.Unlock()
+}
+
 func (l *limiter) allow(remote string) error {
 	if l == nil || l.disabled {
 		return nil

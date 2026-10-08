@@ -69,6 +69,8 @@ not use the client’s virtual clock.
 When `kod: false` and limited: silent drop. `restrict.default: ignore`:
 silent drop before filter match.
 
+The per-IP admission map and the limited (KoD) map evict idle keys and are capped.
+
 ## MAC
 
 ntpd concatenation, not HMAC (ADR 0012): `digest = ALG(key || header[0:48])`

@@ -262,6 +262,14 @@ func validateFilters(filters []model.Filter, vs *[]domainerr.FieldViolation) {
 }
 
 func validateView(path string, v model.ViewSpec, vs *[]domainerr.FieldViolation) {
+	// Negating math.MinInt64 is a no-op, and time.ParseDuration cannot spell it.
+	if v.Offset == time.Duration(math.MinInt64) {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    path + ".offset",
+			Code:    violationInvalidValue,
+			Message: "duration is outside the range time.ParseDuration can represent",
+		})
+	}
 	switch v.Mode {
 	case model.ModeFollowReal, model.ModeOffset, model.ModeAbsolute, model.ModeFreeze, model.ModeRate:
 	case "":

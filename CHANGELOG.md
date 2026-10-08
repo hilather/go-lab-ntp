@@ -16,7 +16,16 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Fixed
 
-- None.
+- A reset that moves management HTTP or turns it off no longer waits on its own request. The old listener closes at once and the old server drains in the background for up to 5 s, then remaining connections are closed. A drain timeout is no longer reported as a failed rebind. Process shutdown waits for that background drain until its timeout. Turning management off leaves the listen address empty.
+- Duration formatting no longer crashes on the minimum signed duration. View durations that `time.ParseDuration` cannot represent are rejected.
+- Reset does not install a bootstrap whose bearer secret file cannot be read or whose bearer list is empty while management auth is attached. The previous snapshot, listeners, bearer, and cookie sessions stay.
+- `labntp mcp-stdio` re-resolves the startup token against the current verifier on each tool call. Demoting or removing that token drops administrator scope.
+- A failed reset rolls the NTP listener back if management HTTP rebind fails. The active snapshot is unchanged.
+- Management HTTP `bodyLimit`, `requestsPerSecond`, `burst`, and `maxConcurrent` take effect on apply and on reset. A lowered `bodyLimit` applies live to REST and `/mcp`. `/mcp` cannot exceed the body limit it started with until restart. Raising `requestsPerSecond`, `burst`, or `maxConcurrent` applies live to REST; `/mcp`'s own limiter keeps its startup ceiling until restart. An explicit `bodyLimit: 0` means the startup default (1 MiB), and an explicit `maxConcurrent: 0` means the startup default (256).
+- REST mutation JSON rejects unknown fields.
+- NTP per-IP and limited buckets, and the MCP management per-remote buckets, evict idle keys and stay capped. An empty oldest MCP key is evicted like any other, so the map cannot grow past the cap.
+- Tag release CI must be the green push for that tag and SHA. A green main or pull-request run of the same commit does not pass the gate. The tag name is passed into the release script as an environment variable. Only the newest matching tag push is judged; an older queued or in-progress run does not block a newer completed green run.
+- Raise `golang.org/x/sys` from v0.41.0 to v0.47.0, past advisory GO-2026-5024 (fixed in v0.44.0). govulncheck found it in a required module only; no LabNTP code path called it.
 
 ### Removed or deprecated
 

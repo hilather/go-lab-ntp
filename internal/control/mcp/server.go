@@ -16,6 +16,7 @@ import (
 	"github.com/hilather/go-lab-ntp/internal/buildinfo"
 	"github.com/hilather/go-lab-ntp/internal/config"
 	"github.com/hilather/go-lab-ntp/internal/domainerr"
+	"github.com/hilather/go-lab-ntp/internal/model"
 	"github.com/hilather/go-lab-ntp/internal/observability"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -55,7 +56,10 @@ type Config struct {
 	MaxConcurrent      int
 	Auth               *auth.Verifier
 	FixedActor         *app.Actor
-	Metrics            *observability.Registry
+	// StdioSecret is the bearer read from --token-file at process start.
+	// Tool calls re-authenticate it; the file is not reread.
+	StdioSecret string
+	Metrics     *observability.Registry
 }
 
 // Server is the official-SDK adapter. Third-party MCP types do not escape it.
@@ -83,6 +87,9 @@ const (
 func New(cfg Config) (*Server, error) {
 	if cfg.Service == nil {
 		return nil, errors.New("mcp: Service is required")
+	}
+	if cfg.FixedActor != nil && cfg.StdioSecret == "" && cfg.Auth != nil {
+		return nil, errors.New("mcp: stdio FixedActor requires StdioSecret")
 	}
 	maxBody := cfg.MaxBodyBytes
 	if maxBody <= 0 {
@@ -128,6 +135,7 @@ func New(cfg Config) (*Server, error) {
 		s.sdk.AddReceivingMiddleware(pinProtocolMiddleware)
 	}
 	if appSvc, ok := s.svc.(*app.App); ok {
+		appSvc.OnAuthPreflight(preflightAuth)
 		appSvc.OnReset(s.reloadAuth)
 		appSvc.OnApply(s.reloadAuth)
 	}
@@ -247,6 +255,13 @@ func (s *Server) actorFrom(ctx context.Context) app.Actor {
 		}
 		return a
 	}
+	if s != nil && s.cfg.StdioSecret != "" && s.cfg.Auth != nil {
+		p, err := s.cfg.Auth.AuthenticateBearer(s.cfg.StdioSecret)
+		if err != nil {
+			return app.Actor{Transport: "mcp"}
+		}
+		return actorOf(p)
+	}
 	if s != nil && s.cfg.FixedActor != nil {
 		out := *s.cfg.FixedActor
 		if out.Transport == "" {
@@ -258,6 +273,23 @@ func (s *Server) actorFrom(ctx context.Context) app.Actor {
 		a.Transport = "mcp"
 	}
 	return a
+}
+
+// preflightAuth refuses a reset whose spec.auth the live verifier cannot load.
+func preflightAuth(spec model.AuthSpec) error {
+	next, err := auth.FromSpec(spec)
+	if err != nil {
+		return err
+	}
+	if err := next.RequireListen(); err != nil {
+		return domainerr.ValidationFailed("management auth cannot be loaded",
+			domainerr.FieldViolation{
+				Path:    "spec.auth.tokens",
+				Code:    "invalid_value",
+				Message: err.Error(),
+			})
+	}
+	return nil
 }
 
 func (s *Server) reloadAuth() {

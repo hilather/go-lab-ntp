@@ -323,7 +323,7 @@ curl -sS -X POST "$MGT/v1/state:reset" \
   -d '{"reason":"end of run"}'
 ```
 
-Reset rereads the bootstrap mount, wipes the query log, and swaps. If the effective listen address changed (after flags), it binds the **new** socket first, then drains the old one. It never writes the YAML file. Materialized `epoch` is not persisted back to disk.
+Reset rereads the bootstrap mount, wipes the query log, and swaps. If the effective listen address changed (after flags), it binds the **new** socket first. NTP then drains the old socket. Management HTTP closes the old listener immediately and drains the old server in the background for up to 5s; turning management off closes immediately and does not wait on in-flight requests. Process shutdown waits for that background drain until its timeout. After management is off, its listen address is empty. A failed rebind leaves the previous listener and snapshot. It never writes the YAML file. Materialized `epoch` is not persisted back to disk.
 
 ### MCP equivalents
 

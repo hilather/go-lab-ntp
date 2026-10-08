@@ -12,6 +12,7 @@ import (
 	"github.com/hilather/go-lab-ntp/internal/compiler"
 	"github.com/hilather/go-lab-ntp/internal/config"
 	"github.com/hilather/go-lab-ntp/internal/domainerr"
+	"github.com/hilather/go-lab-ntp/internal/model"
 	"github.com/hilather/go-lab-ntp/internal/ntpview"
 	"github.com/hilather/go-lab-ntp/internal/observability"
 	"github.com/hilather/go-lab-ntp/internal/querylog"
@@ -52,11 +53,17 @@ type App struct {
 	audit         *audit.Fanout
 	resetHooks    []func()
 	applyHooks    []func()
+	authPreflight []func(model.AuthSpec) error
 	metrics       *observability.Registry
 	logger        *observability.Logger
 	queryLog      *querylog.Ring
 	ntpOverride   string
 	mgmtOverride  string
+	// mgmtEffective is the management address installed at boot or by the
+	// last successful reset. Empty is a real value (management off), so
+	// mgmtEffectiveSet distinguishes "not recorded yet".
+	mgmtEffective    string
+	mgmtEffectiveSet bool
 
 	healthMu sync.Mutex
 	health   func() observability.Facts
@@ -90,7 +97,7 @@ func New(opts Options) *App {
 			auditMax = defaultAuditMax
 		}
 	}
-	return &App{
+	app := &App{
 		snaps:         opts.Snapshots,
 		now:           opts.Now,
 		clock:         opts.Clock,
@@ -103,6 +110,11 @@ func New(opts Options) *App {
 		ntpOverride:   opts.NTPListenOverride,
 		mgmtOverride:  opts.MgmtListenOverride,
 	}
+	if snap := app.snaps.Load(); snap != nil {
+		app.mgmtEffective = effectiveMgmt(app.mgmtOverride, snap.ManagementAddress)
+		app.mgmtEffectiveSet = true
+	}
+	return app
 }
 
 // Boot loads bootstrap YAML, compiles a snapshot, and installs it.
@@ -184,12 +196,25 @@ func (s *App) SetNTPRebind(fn func(addr string) error) {
 }
 
 // SetHTTPRebind installs the D8 management HTTP bind-new-first hook.
-// Empty addr means unbind (management off).
+// Empty addr means unbind (management off). A non-nil error means the
+// previous listener is untouched.
 func (s *App) SetHTTPRebind(fn func(addr string) error) {
 	if s == nil {
 		return
 	}
 	s.httpRebind = fn
+}
+
+// OnAuthPreflight registers a check run inside Reset, under s.mu, after the
+// bootstrap candidate compiles and before rebind or swap. The registrar
+// itself takes s.mu and must not be called from resetLocked.
+func (s *App) OnAuthPreflight(fn func(model.AuthSpec) error) {
+	if s == nil || fn == nil {
+		return
+	}
+	s.mu.Lock()
+	s.authPreflight = append(s.authPreflight, fn)
+	s.mu.Unlock()
 }
 
 // OnReset registers a hook fired after a successful Reset (outside the mutex).

@@ -16,6 +16,7 @@ import (
 	"github.com/hilather/go-lab-ntp/internal/capabilities"
 	"github.com/hilather/go-lab-ntp/internal/config"
 	"github.com/hilather/go-lab-ntp/internal/domainerr"
+	"github.com/hilather/go-lab-ntp/internal/model"
 	"github.com/hilather/go-lab-ntp/internal/observability"
 )
 
@@ -34,6 +35,10 @@ const (
 	headerAllow              = "Allow"
 	requestURNPrefix         = "urn:labntp:request:"
 )
+
+// rebindDrainTimeout bounds the background drain of the server Rebind
+// replaced. Rebind does not wait for it, and a timeout is not an error.
+const rebindDrainTimeout = 5 * time.Second
 
 // Config constructs a management HTTP server.
 type Config struct {
@@ -67,19 +72,26 @@ type Server struct {
 	svc      app.Service
 	routes   []compiledRoute
 	handler  http.Handler
-	maxBody  int64
+	maxBody  atomic.Int64
 	timeout  time.Duration
-	inflight chan struct{}
+	inflight inflightGate
 	rate     *limiter
 	metrics  *observability.Registry
 	logger   *observability.Logger
 	mounts   *http.ServeMux
 
-	mu     sync.Mutex
-	http   *http.Server
-	ln     net.Listener
-	closed atomic.Bool
-	addr   string
+	limitsMu sync.Mutex
+	mu       sync.Mutex
+	http     *http.Server
+	ln       net.Listener
+	closed   atomic.Bool
+	addr     string
+	// drains are background rebind drains. Each channel is created in the
+	// same s.mu section that detaches the old server, and closed when that
+	// drain finishes, including Close after a timeout. A slice under mu,
+	// not a WaitGroup: Add concurrent with Wait panics once the counter
+	// has hit zero, and Rebind can start a drain while Shutdown is waiting.
+	drains []chan struct{}
 }
 
 // New builds a Server. Routes come from the frozen capability registry.
@@ -111,20 +123,23 @@ func New(cfg Config) (*Server, error) {
 		})
 	}
 	s := &Server{
-		cfg:      cfg,
-		svc:      cfg.Service,
-		routes:   compileRoutes(capabilities.All()),
-		maxBody:  maxBody,
-		timeout:  timeout,
-		inflight: make(chan struct{}, n),
-		rate:     newLimiter(cfg.RatePerSec, cfg.RateBurst),
-		metrics:  cfg.Metrics,
-		logger:   cfg.Logger,
-		addr:     cfg.Addr,
+		cfg:     cfg,
+		svc:     cfg.Service,
+		routes:  compileRoutes(capabilities.All()),
+		timeout: timeout,
+		rate:    newLimiter(cfg.RatePerSec, cfg.RateBurst),
+		metrics: cfg.Metrics,
+		logger:  cfg.Logger,
+		addr:    cfg.Addr,
 	}
+	s.maxBody.Store(maxBody)
+	s.inflight.setMax(n)
 	if appSvc, ok := s.svc.(*app.App); ok {
+		appSvc.OnAuthPreflight(preflightAuth)
 		appSvc.OnReset(s.reloadAuth)
 		appSvc.OnApply(s.reloadAuth)
+		appSvc.OnReset(s.syncManagementLimits)
+		appSvc.OnApply(s.syncManagementLimits)
 	}
 	if len(cfg.Mounts) > 0 {
 		mux := http.NewServeMux()
@@ -168,21 +183,7 @@ func (s *Server) Serve(ln net.Listener) error {
 		_ = ln.Close()
 		return errors.New("rest: server already started")
 	}
-	rh := s.cfg.ReadHeaderTimeout
-	if rh <= 0 {
-		rh = DefaultReadHeaderTimeout
-	}
-	rt := s.cfg.ReadTimeout
-	if rt <= 0 {
-		rt = DefaultReadTimeout
-	}
-	hs := &http.Server{
-		Handler:           s.Handler(),
-		ReadHeaderTimeout: rh,
-		ReadTimeout:       rt,
-		WriteTimeout:      s.cfg.WriteTimeout,
-		MaxHeaderBytes:    1 << 16,
-	}
+	hs := s.newHTTPServer()
 	s.http = hs
 	s.ln = ln
 	s.addr = ln.Addr().String()
@@ -192,48 +193,145 @@ func (s *Server) Serve(ln net.Listener) error {
 		_ = ln.Close()
 		return nil
 	}
-	err := hs.Serve(ln)
+	return serveResult(hs.Serve(ln))
+}
+
+func (s *Server) newHTTPServer() *http.Server {
+	rh := s.cfg.ReadHeaderTimeout
+	if rh <= 0 {
+		rh = DefaultReadHeaderTimeout
+	}
+	rt := s.cfg.ReadTimeout
+	if rt <= 0 {
+		rt = DefaultReadTimeout
+	}
+	return &http.Server{
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: rh,
+		ReadTimeout:       rt,
+		WriteTimeout:      s.cfg.WriteTimeout,
+		MaxHeaderBytes:    1 << 16,
+	}
+}
+
+// serveResult treats http.ErrServerClosed as a normal stop.
+func serveResult(err error) error {
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
 	return err
 }
 
-// Rebind binds addr first, then drains the old HTTP server. Empty addr unbinds.
+// Rebind moves the management listener to addr, or unbinds when addr is empty.
+// A non-nil error means net.Listen failed and the previous listener is untouched.
+// The old listener is closed before Rebind returns. The old server drains in
+// the background for up to rebindDrainTimeout; that drain is not an error.
 func (s *Server) Rebind(addr string) error {
 	if s == nil {
 		return errors.New("rest: nil server")
 	}
 	s.mu.Lock()
 	cur := s.addr
+	bound := s.ln != nil && s.http != nil && !s.closed.Load()
 	s.mu.Unlock()
-	if addr == "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		return s.Shutdown(ctx)
+	if addr != "" && addr == cur && bound {
+		return nil
 	}
-	if addr == cur && s.Bound() {
+	if addr == "" {
+		s.mu.Lock()
+		oldHS, oldLn := s.http, s.ln
+		s.http = nil
+		s.ln = nil
+		s.addr = ""
+		s.closed.Store(true)
+		var done chan struct{}
+		if oldHS != nil || oldLn != nil {
+			done = make(chan struct{})
+			s.drains = append(s.drains, done)
+		}
+		s.mu.Unlock()
+		s.drainAsync(oldHS, oldLn, done)
 		return nil
 	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
-	old := func() *http.Server {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		hs := s.http
-		s.http = nil
-		s.closed.Store(false)
-		return hs
-	}()
-	if old != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = old.Shutdown(ctx)
-		cancel()
+	hs := s.newHTTPServer()
+	s.mu.Lock()
+	oldHS, oldLn := s.http, s.ln
+	s.http = hs
+	s.ln = ln
+	s.addr = ln.Addr().String()
+	s.closed.Store(false)
+	var done chan struct{}
+	if oldHS != nil || oldLn != nil {
+		done = make(chan struct{})
+		s.drains = append(s.drains, done)
 	}
-	go func() { _ = s.Serve(ln) }()
+	s.mu.Unlock()
+	s.drainAsync(oldHS, oldLn, done)
+	go func() { _ = serveResult(hs.Serve(ln)) }()
 	return nil
+}
+
+// drainAsync closes ln before it returns and drains hs in the background
+// for up to rebindDrainTimeout. done was created under s.mu in the same
+// critical section that detached hs and ln, so a Shutdown that runs after
+// that section sees the drain. done is nil only when both are nil. A nil
+// server with a live listener closes that listener and finishes done
+// before returning.
+//
+// http.Server.Shutdown sets inShutdown and closes tracked listeners before
+// its RegisterOnShutdown hooks run, so waiting for the hook and then closing
+// ln refuses new connections without Serve returning "use of closed network
+// connection". A timed-out drain calls Close. That still finishes done.
+//
+// net/http runs every onShutdown hook again on each later Shutdown of the
+// same *http.Server. sync.Once keeps close(ready) from running twice.
+func (s *Server) drainAsync(hs *http.Server, ln net.Listener, done chan struct{}) {
+	if hs == nil && ln == nil {
+		return
+	}
+	if hs == nil {
+		_ = ln.Close()
+		s.finishDrain(done)
+		return
+	}
+	var once sync.Once
+	ready := make(chan struct{})
+	hs.RegisterOnShutdown(func() {
+		once.Do(func() { close(ready) })
+	})
+	go func() {
+		defer s.finishDrain(done)
+		ctx, cancel := context.WithTimeout(context.Background(), rebindDrainTimeout)
+		defer cancel()
+		if err := hs.Shutdown(ctx); err != nil {
+			_ = hs.Close()
+		}
+	}()
+	<-ready
+	if ln != nil {
+		_ = ln.Close()
+	}
+}
+
+// finishDrain drops done from the in-flight set, then closes it so a
+// Shutdown that already copied the slice still wakes. Exactly once.
+func (s *Server) finishDrain(done chan struct{}) {
+	if done == nil {
+		return
+	}
+	s.mu.Lock()
+	for i, ch := range s.drains {
+		if ch == done {
+			s.drains = append(s.drains[:i], s.drains[i+1:]...)
+			break
+		}
+	}
+	s.mu.Unlock()
+	close(done)
 }
 
 // Bound reports whether a listener is accepting.
@@ -247,27 +345,59 @@ func (s *Server) Bound() bool {
 }
 
 // Shutdown closes the listener and waits for in-flight requests.
+// It also waits for background rebind drains already started, bounded by ctx.
+// If ctx ends first, Shutdown returns ctx.Err() and does not wait out the drain.
+// An error from the current server takes precedence over the drain wait.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.closed.Store(true)
 	s.mu.Lock()
 	hs := s.http
 	ln := s.ln
 	s.mu.Unlock()
+	var err error
 	if hs != nil {
-		return hs.Shutdown(ctx)
+		err = hs.Shutdown(ctx)
+	} else if ln != nil {
+		err = ln.Close()
 	}
-	if ln != nil {
-		return ln.Close()
+	if werr := s.waitDrains(ctx); err == nil {
+		err = werr
+	}
+	return err
+}
+
+// waitDrains waits for background drains already started when it is called.
+// It snapshots the set under s.mu and does not hold that lock while waiting.
+// A drain that finishes before the snapshot is already gone. If ctx ends
+// first, waitDrains returns ctx.Err().
+func (s *Server) waitDrains(ctx context.Context) error {
+	s.mu.Lock()
+	pending := append([]chan struct{}(nil), s.drains...)
+	s.mu.Unlock()
+	for _, done := range pending {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-done:
+		}
 	}
 	return nil
 }
 
 // Addr returns the bound address after Serve, or the configured listen address.
+// After Rebind(""), Bound is false and Addr is empty. Shutdown leaves the
+// listener in place, so Addr still returns the address that was bound.
 func (s *Server) Addr() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ln != nil {
 		return s.ln.Addr().String()
+	}
+	if s.addr != "" {
+		return s.addr
+	}
+	if s.closed.Load() {
+		return ""
 	}
 	if s.cfg.Addr != "" {
 		return s.cfg.Addr
@@ -297,13 +427,11 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	select {
-	case s.inflight <- struct{}{}:
-		defer func() { <-s.inflight }()
-	default:
+	if !s.inflight.acquire() {
 		s.writeProblem(w, r, instance, domainerr.RateLimited("too many concurrent management requests"))
 		return
 	}
+	defer s.inflight.release()
 
 	ctx := r.Context()
 	var cancel context.CancelFunc
@@ -356,6 +484,25 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	s.writeProblem(w, r, instance, domainerr.NotFound("not found"))
 }
 
+// preflightAuth refuses a reset whose spec.auth the live verifier cannot load.
+// RequireListen's plain error is validation_failed; asDomain would hide it
+// as internal_error.
+func preflightAuth(spec model.AuthSpec) error {
+	next, err := auth.FromSpec(spec)
+	if err != nil {
+		return err
+	}
+	if err := next.RequireListen(); err != nil {
+		return domainerr.ValidationFailed("management auth cannot be loaded",
+			domainerr.FieldViolation{
+				Path:    "spec.auth.tokens",
+				Code:    "invalid_value",
+				Message: err.Error(),
+			})
+	}
+	return nil
+}
+
 func (s *Server) reloadAuth() {
 	if s.cfg.Auth == nil {
 		return
@@ -405,6 +552,12 @@ func (s *Server) dispatchMount(w http.ResponseWriter, r *http.Request, instance 
 	if err := s.rate.allow(r.RemoteAddr); err != nil {
 		s.writeProblem(w, r, instance, err)
 		return true
+	}
+	// Same live ceiling REST JSON decode uses. The mounted MCP handler
+	// still has its own startup MaxRequestBodyBytes, so a raise above
+	// that ceiling does not take effect until restart.
+	if r.Body != nil {
+		r.Body = http.MaxBytesReader(w, r.Body, s.maxBody.Load())
 	}
 	h.ServeHTTP(w, r)
 	return true
@@ -475,16 +628,97 @@ func (w *statusWriter) status() int {
 	return w.code
 }
 
+// inflightMax is the current concurrency cap.
+func (s *Server) inflightMax() int {
+	if s == nil {
+		return 0
+	}
+	return s.inflight.getMax()
+}
+
+// syncManagementLimits publishes the active snapshot's HTTP limits. The
+// mutex is taken before Active so overlapping apply and reset hooks cannot
+// store an older snapshot after a newer one.
+func (s *Server) syncManagementLimits() {
+	if s == nil {
+		return
+	}
+	s.limitsMu.Lock()
+	defer s.limitsMu.Unlock()
+	appSvc, ok := s.svc.(*app.App)
+	if !ok {
+		return
+	}
+	snap := appSvc.Active()
+	if snap == nil || snap.Canonical == nil {
+		return
+	}
+	m := snap.Canonical.Spec.Management
+	s.ApplyLimits(m.BodyLimit, m.RequestsPerSecond, m.Burst, m.MaxConcurrent)
+}
+
 // ApplyLimits updates live management HTTP admission knobs.
 func (s *Server) ApplyLimits(bodyLimit int64, rps, burst, maxConcurrent int) {
 	if s == nil {
 		return
 	}
-	if bodyLimit > 0 {
-		s.maxBody = bodyLimit
+	if bodyLimit <= 0 {
+		bodyLimit = DefaultMaxBodyBytes
 	}
-	if rps != 0 || burst != 0 {
-		s.rate = newLimiter(float64(rps), float64(burst))
+	s.maxBody.Store(bodyLimit)
+	s.rate.setRate(float64(rps), float64(burst))
+	n := maxConcurrent
+	if n <= 0 {
+		n = DefaultMaxConcurrent
 	}
-	_ = maxConcurrent
+	s.inflight.setMax(n)
+}
+
+// inflightGate counts in-flight management requests. acquire does not wait.
+type inflightGate struct {
+	mu  sync.Mutex
+	cur int
+	max int
+}
+
+func (g *inflightGate) acquire() bool {
+	if g == nil {
+		return false
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.max > 0 && g.cur >= g.max {
+		return false
+	}
+	g.cur++
+	return true
+}
+
+func (g *inflightGate) release() {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.cur > 0 {
+		g.cur--
+	}
+}
+
+func (g *inflightGate) setMax(n int) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	g.max = n
+	g.mu.Unlock()
+}
+
+func (g *inflightGate) getMax() int {
+	if g == nil {
+		return 0
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.max
 }

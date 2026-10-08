@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -23,6 +24,9 @@ var requiredCIJobs = []string{
 	"config-compat", "changelog", "generated-file", "parity", "security-scan",
 	"container-test", "web",
 }
+
+// releaseTagPattern is the tag shape the release workflow accepts.
+var releaseTagPattern = regexp.MustCompile(`^v[0-9A-Za-z.+-]+$`)
 
 func main() {
 	notesOnly := flag.Bool("notes-only", false, "validate notes headings only")
@@ -72,7 +76,28 @@ func validateNotes(path string) error {
 	return nil
 }
 
+// resolveReleaseTag reads GITHUB_REF when it is refs/tags/..., otherwise
+// GITHUB_REF_NAME, then strips a refs/tags/ prefix. The result must look
+// like a release tag.
+func resolveReleaseTag() (string, error) {
+	ref := strings.TrimSpace(os.Getenv("GITHUB_REF"))
+	name := strings.TrimSpace(os.Getenv("GITHUB_REF_NAME"))
+	tag := name
+	if strings.HasPrefix(ref, "refs/tags/") {
+		tag = ref
+	}
+	tag = strings.TrimPrefix(tag, "refs/tags/")
+	if !releaseTagPattern.MatchString(tag) {
+		return "", fmt.Errorf("no tag ref %q", tag)
+	}
+	return tag, nil
+}
+
 func requireGreenCI() error {
+	tag, err := resolveReleaseTag()
+	if err != nil {
+		return err
+	}
 	sha := strings.TrimSpace(os.Getenv("GITHUB_SHA"))
 	if sha == "" {
 		out, err := exec.Command("git", "rev-parse", "HEAD").Output()
@@ -84,7 +109,8 @@ func requireGreenCI() error {
 	cmd := exec.Command("gh", "run", "list",
 		"--workflow=ci.yml",
 		"--commit="+sha,
-		"--json", "databaseId,conclusion,status,headSha,event,displayTitle")
+		"--limit", "200",
+		"--json", "databaseId,conclusion,status,headSha,event,headBranch,displayTitle")
 	out, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("gh run list: %w", err)
@@ -95,27 +121,37 @@ func requireGreenCI() error {
 		Status     string `json:"status"`
 		HeadSHA    string `json:"headSha"`
 		Event      string `json:"event"`
+		HeadBranch string `json:"headBranch"`
 	}
 	if err := json.Unmarshal(out, &runs); err != nil {
 		return fmt.Errorf("parse gh run list: %w", err)
 	}
-	var id int
+	type match struct {
+		id     int
+		status string
+	}
+	var matched []match
 	for _, r := range runs {
-		if r.Status != "completed" {
+		if r.Event != "push" || r.HeadSHA != sha || r.HeadBranch != tag {
 			continue
 		}
-		if r.Event == "push" {
-			id = r.DatabaseID
-			break
-		}
-		if id == 0 {
-			id = r.DatabaseID
+		matched = append(matched, match{id: r.DatabaseID, status: r.Status})
+	}
+	if len(matched) == 0 {
+		return fmt.Errorf("no matching run for tag %s commit %s", tag, sha)
+	}
+	// Judge only the highest databaseId. An older queued or in-progress
+	// run must not block a newer completed green run.
+	best := matched[0]
+	for _, r := range matched[1:] {
+		if r.id > best.id {
+			best = r
 		}
 	}
-	if id == 0 {
-		return fmt.Errorf("no completed CI run for commit %s", sha)
+	if best.status != "completed" {
+		return fmt.Errorf("pending CI run for tag %s", tag)
 	}
-	view := exec.Command("gh", "run", "view", fmt.Sprintf("%d", id), "--json", "jobs")
+	view := exec.Command("gh", "run", "view", fmt.Sprintf("%d", best.id), "--json", "jobs")
 	jobJSON, err := view.Output()
 	if err != nil {
 		return fmt.Errorf("gh run view: %w", err)

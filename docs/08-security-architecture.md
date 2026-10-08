@@ -10,7 +10,13 @@ Related ADRs: 0005
 `spec.auth.mode: bearer`. Tokens are file refs, ≥32 bytes, SHA-256 digest
 compare (`crypto/subtle`). No HTTP Basic. Roles expand to `ntp.read`,
 `ntp.write`, `ntp.admin`, `ntp.audit.read`. Management bind fails closed
-with zero usable tokens unless `--management-listen=off`.
+with zero usable tokens unless `--management-listen=off`. A failed reset
+does not install a candidate that dropped a token the process would still
+authorize: an unreadable secret file or an empty bearer list returns
+`validation_failed` and the live verifier stays. `labntp mcp-stdio` does
+not keep the scopes captured at startup: each tool call re-authenticates
+the startup secret, so demoting or removing that token drops administrator
+scope.
 
 ## SPA session
 
