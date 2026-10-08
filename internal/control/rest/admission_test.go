@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/hilather/go-lab-ntp/internal/auth"
+	"github.com/hilather/go-lab-ntp/internal/control/mcp"
 	"github.com/hilather/go-lab-ntp/internal/model"
 )
 
@@ -98,6 +99,51 @@ func TestApplyLowerBodyLimitRejectsOversizedMCPPost(t *testing.T) {
 	}
 }
 
+// The mounted handler is mcp.Server.Handler. The SDK reads the live
+// MaxBytesReader body and maps *http.MaxBytesError to 413. The stub above
+// only checks that dispatchMount wrapped the body.
+func TestApplyLowerBodyLimitRejectsOversizedRealMCPPost(t *testing.T) {
+	svc := bootTestApp(t)
+	const limit = int64(64)
+	mcpSrv, err := mcp.New(mcp.Config{
+		Service:            svc,
+		RatePerSec:         -1,
+		AllowLegacyClients: true,
+		// Startup SDK ceiling stays at 1 MiB, above the lowered live limit,
+		// so 413 comes from dispatchMount rather than the SDK cap.
+		MaxBodyBytes: DefaultMaxBodyBytes,
+		Auth:         auth.Static(testToken, "admin", model.RoleAdministrator),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(mcpSrv.Close)
+	s, err := New(Config{
+		Service:    svc,
+		Auth:       auth.Static(testToken, "admin", model.RoleAdministrator),
+		RatePerSec: -1,
+		Mounts:     map[string]http.Handler{"/mcp": mcpSrv.Handler()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyManagementHTTP(t, s, string(svc.Active().Revision), limit, 32, 64, 256)
+	if got := s.maxBody.Load(); got != limit {
+		t.Fatalf("live body limit %d, want %d", got, limit)
+	}
+
+	over := doMCPPost(t, s, strings.Repeat("b", int(limit)+1))
+	if over.StatusCode != http.StatusRequestEntityTooLarge {
+		raw, _ := io.ReadAll(over.Body)
+		t.Fatalf("oversized /mcp POST status %d, want %d, body %s", over.StatusCode, http.StatusRequestEntityTooLarge, raw)
+	}
+	under := doMCPPost(t, s, strings.Repeat("a", int(limit)-1))
+	if under.StatusCode == http.StatusRequestEntityTooLarge {
+		raw, _ := io.ReadAll(under.Body)
+		t.Fatalf("under-limit /mcp POST status %d, body %s", under.StatusCode, raw)
+	}
+}
+
 // bodyLimit 0 is the startup default, matching New, not the previous live value.
 func TestApplyZeroBodyLimitRestoresDefault(t *testing.T) {
 	svc := bootTestApp(t)
@@ -135,6 +181,23 @@ func doMounted(t *testing.T, s *Server, method, path, body string) *http.Respons
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	resp := w.Result()
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	return resp
+}
+
+// doMCPPost sends the headers the real MCP handler and SDK require before
+// they read the body: bearer auth, protocol version, JSON content type, and
+// an Accept list that includes both JSON and event-stream.
+func doMCPPost(t *testing.T, s *Server, body string) *http.Response {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	req.Header.Set("Mcp-Protocol-Version", mcp.ProtocolVersion)
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
 	resp := w.Result()
