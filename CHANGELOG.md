@@ -22,6 +22,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 - REST mutation JSON rejects unknown fields.
 - NTP per-IP and limited buckets, and the MCP management per-remote buckets, evict idle keys and stay capped.
 - Tag release CI must be the green push for that tag and SHA. A green main or pull-request run of the same commit does not pass the gate. The tag name is passed into the release script as an environment variable.
+- Raise `golang.org/x/sys` from v0.41.0 to v0.47.0, past advisory GO-2026-5024 (fixed in v0.44.0). govulncheck found it in a required module only; no LabNTP code path called it.
 
 ### Removed or deprecated
 
