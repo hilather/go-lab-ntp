@@ -151,6 +151,56 @@ func TestCharacterizeSessionTTL(t *testing.T) {
 		}
 	})
 
+	t.Run("expires at", func(t *testing.T) {
+		st, cur := clockedStore(t, DefaultSessionConfig())
+		base := *cur
+		cookie, _, created, err := st.Create(adminPrincipal())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := st.ExpiresAt(created); !got.Equal(base.Add(4 * time.Hour)) {
+			t.Fatalf("create ExpiresAt %s, want %s", got, base.Add(4*time.Hour))
+		}
+
+		*cur = base.Add(3 * time.Hour)
+		slid, _, ok := st.Lookup(cookie)
+		if !ok {
+			t.Fatal("lookup inside idle")
+		}
+		if !slid.LastSeen.Equal(*cur) {
+			t.Fatalf("LastSeen %s, want %s", slid.LastSeen, *cur)
+		}
+		want := earlierExpiry(slid.LastSeen.Add(4*time.Hour), slid.CreatedAt.Add(12*time.Hour))
+		if got := st.ExpiresAt(slid); !got.Equal(want) {
+			t.Fatalf("ExpiresAt %s, want min(LastSeen+4h, CreatedAt+12h)=%s", got, want)
+		}
+
+		// Slide once more so a later lookup is still inside idle, then let
+		// LastSeen+4h pass CreatedAt+12h. The absolute cap is the min.
+		*cur = base.Add(7 * time.Hour)
+		if _, _, ok = st.Lookup(cookie); !ok {
+			t.Fatal("slide before the absolute cap")
+		}
+		*cur = base.Add(9 * time.Hour)
+		capped, _, ok := st.Lookup(cookie)
+		if !ok {
+			t.Fatal("lookup inside absolute TTL")
+		}
+		if !capped.LastSeen.Equal(*cur) {
+			t.Fatalf("LastSeen %s, want %s", capped.LastSeen, *cur)
+		}
+		abs := capped.CreatedAt.Add(12 * time.Hour)
+		idleEnd := capped.LastSeen.Add(4 * time.Hour)
+		if !idleEnd.After(abs) {
+			t.Fatalf("fixture idle %s does not pass absolute %s", idleEnd, abs)
+		}
+		if got := st.ExpiresAt(capped); !got.Equal(earlierExpiry(idleEnd, abs)) || !got.Equal(abs) {
+			t.Fatalf("absolute cap ExpiresAt %s, want %s", got, abs)
+		}
+		// expiredLocked uses >, so the session is still valid at ExpiresAt.
+		// Do not assert that Lookup fails at that instant.
+	})
+
 	t.Run("non-positive idle expires at 4h", func(t *testing.T) {
 		st, cur := clockedStore(t, SessionConfig{Idle: -1, Absolute: 0, Max: 0})
 		base := *cur
@@ -261,11 +311,21 @@ func adminPrincipal() Principal {
 }
 
 // sessionAPI is the method set these tests call. The concrete type is inferred
-// from NewStore.
+// from NewStore. ExpiresAt stays on the wrapper commit 3 keeps.
 type sessionAPI interface {
 	Create(Principal) (string, string, Session, error)
 	Lookup(string) (Session, string, bool)
 	ValidCSRF(string, string) bool
+	ExpiresAt(Session) time.Time
+}
+
+// earlierExpiry is min(idle, absolute), matching ExpiresAt: equal instants
+// return the absolute deadline.
+func earlierExpiry(idle, absolute time.Time) time.Time {
+	if idle.Before(absolute) {
+		return idle
+	}
+	return absolute
 }
 
 func clockedStore(t *testing.T, cfg SessionConfig) (sessionAPI, *time.Time) {

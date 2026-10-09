@@ -291,7 +291,31 @@ spec:
 	return os.WriteFile(filepath.Join(dir, "labntp.yaml"), []byte(yaml), 0o644)
 }
 
+// boot starts one instance. A lost pre-bound port (address already in use on
+// stderr, or readiness failure) reserves new ports and reruns that instance
+// once. The rerun is logged to stderr, not the transcript, so a rare retry
+// cannot fail the self-diff. A second failure fails the harness.
 func (h *harness) boot(dir, label string, burst int) error {
+	err := h.bootOnce(dir, label, burst)
+	if err == nil || !lostPreboundPort(err) {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "difftranscript: rerun %s once after lost pre-bound port: %v\n", label, err)
+	if err = h.bootOnce(dir, label, burst); err != nil {
+		return fmt.Errorf("boot %s: rerun failed: %w", label, err)
+	}
+	return nil
+}
+
+func lostPreboundPort(err error) bool {
+	msg := err.Error()
+	if strings.Contains(msg, "address already in use") || strings.Contains(msg, "address in use") {
+		return true
+	}
+	return strings.Contains(msg, "readiness:")
+}
+
+func (h *harness) bootOnce(dir, label string, burst int) error {
 	if h.srv != nil {
 		h.srv.stop()
 		h.srv = nil
@@ -331,14 +355,14 @@ func (h *harness) boot(dir, label string, burst int) error {
 		return fmt.Errorf("boot %s: ntp=%q management=%q stderr=%s", label, ntpBound, mgmtEcho, p.stderr.String())
 	}
 	if mgmtEcho != mgmt {
-		return fmt.Errorf("boot %s: management log %q, flag %q", label, mgmtEcho, mgmt)
+		return fmt.Errorf("boot %s: management log %q, flag %q stderr=%s", label, mgmtEcho, mgmt, p.stderr.String())
 	}
-	h.addrs = append(h.addrs, ntpBound, mgmtEcho)
 	h.baseURL = "http://" + mgmt
 	h.metrics = map[string]float64{}
 	if err := h.ready(); err != nil {
 		return fmt.Errorf("boot %s: %w stderr=%s", label, err, p.stderr.String())
 	}
+	h.addrs = append(h.addrs, ntpBound, mgmtEcho)
 	if _, err := h.scrape(true); err != nil {
 		return err
 	}
@@ -880,19 +904,41 @@ func (h *harness) writeStdio(block int, name, body string) {
 
 func (h *harness) block5() error {
 	start := h.begin(5)
-	ip := "127.0.0.14"
+	// REST series, one source, burst+1. /mcp is mounted on the REST server.
+	// dispatchMount calls the REST limiter before the MCP handler, so this
+	// fourth call is that limiter's problem+json 429 (rate_limited, "too many
+	// management requests"). The MCP limiter is not consulted.
+	restIP := "127.0.0.14"
 	series := time.Now()
 	for i := 0; i < rateBurst+1; i++ {
-		if _, err := h.record(5, ip, http.MethodGet, "/v1/version", "", bearer(adminSecret)); err != nil {
+		if _, err := h.record(5, restIP, http.MethodGet, "/v1/version", "", bearer(adminSecret)); err != nil {
 			return err
 		}
 	}
 	if time.Since(series) >= time.Second {
 		return fmt.Errorf("block 5 REST series took %s", time.Since(series))
 	}
+
+	// The MCP limiter is built once (mcp.New → newLimiter) and has no setRate.
+	// reloadAuth only replaces the verifier. Reset rereads a bootstrap whose
+	// burst is high enough that ApplyLimits/setRate raises the live REST
+	// limiter and it stops denying. setRate does not refill an existing
+	// bucket, so the reset uses a source that still has REST tokens.
+	// The MCP limiter keeps the startup burst of 3.
+	if err := h.writeTree(h.rate, 1, normalBurst, "administrator"); err != nil {
+		return err
+	}
+	if _, err := h.record(5, "127.0.0.18", http.MethodPost, "/v1/state:reset", `{"reason":"raise-rest-burst"}`, bearer(adminSecret)); err != nil {
+		return err
+	}
+
+	// MCP series from a fresh source, burst+1, own 1s budget. REST admits
+	// each call: the source's bucket is created after setRate, at the raised
+	// burst. The fourth call is the MCP limiter's JSON-RPC -32005.
+	mcpIP := "127.0.0.19"
 	series = time.Now()
 	for i := 0; i < rateBurst+1; i++ {
-		if _, err := h.mcp(5, ip, "ntp_version_get", map[string]any{}, bearer(adminSecret)); err != nil {
+		if _, err := h.mcp(5, mcpIP, "ntp_version_get", map[string]any{}, bearer(adminSecret)); err != nil {
 			return err
 		}
 	}
