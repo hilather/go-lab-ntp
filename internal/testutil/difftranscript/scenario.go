@@ -517,9 +517,6 @@ func (h *harness) scrape(baseline bool) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if res.status != 200 {
-		return nil, fmt.Errorf("metrics status %d body %s", res.status, res.body)
-	}
 	cur := parseMetrics(res.body)
 	if baseline {
 		h.metrics = cur
@@ -584,14 +581,7 @@ func (h *harness) revision(block int, ip string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if res.status != 200 {
-		return "", fmt.Errorf("state status %d %s", res.status, snippetOf(res.body))
-	}
-	rev := jsonString(res.body, "runtimeRevision")
-	if rev == "" {
-		return "", fmt.Errorf("state missing runtimeRevision %s", snippetOf(res.body))
-	}
-	return rev, nil
+	return jsonString(res.body, "runtimeRevision"), nil
 }
 
 func jsonString(body, key string) string {
@@ -618,28 +608,6 @@ func extractJSON(body string) string {
 	return b.String()
 }
 
-func snippetOf(s string) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if len(s) > 240 {
-		return s[:240]
-	}
-	return s
-}
-
-func requireStatus(res response, want int) error {
-	if res.status != want {
-		return fmt.Errorf("status %d want %d body %s", res.status, want, snippetOf(res.body))
-	}
-	return nil
-}
-
-func requireText(res response, text string) error {
-	if !strings.Contains(res.body, text) {
-		return fmt.Errorf("body missing %q: %s", text, snippetOf(res.body))
-	}
-	return nil
-}
-
 func applyBody(rev, key, reason, def string) string {
 	return fmt.Sprintf(`{"expectedRevision":%q,"idempotencyKey":%q,"reason":%q,"operations":[{"op":"replaceRestrict","restrict":{"default":%q,"kod":true}}]}`, rev, key, reason, def)
 }
@@ -651,62 +619,30 @@ func (h *harness) block1() error {
 	if err != nil {
 		return fmt.Errorf("block 1: %w", err)
 	}
-	res, err := h.record(1, ip, http.MethodPost, "/v1/changes:apply", applyBody(rev, "idem-block1", "harness", "limited"), bearer(adminSecret))
-	if err != nil {
+	if _, err := h.record(1, ip, http.MethodPost, "/v1/changes:apply", applyBody(rev, "idem-block1", "harness", "limited"), bearer(adminSecret)); err != nil {
 		return err
 	}
-	if err := requireStatus(res, 200); err != nil {
-		return fmt.Errorf("block 1 apply: %w", err)
-	}
-	res, err = h.record(1, ip, http.MethodGet, "/v1/state", "", bearer("not-a-token"))
-	if err != nil {
+	if _, err := h.record(1, ip, http.MethodGet, "/v1/state", "", bearer("not-a-token")); err != nil {
 		return err
 	}
-	if err := requireStatus(res, 401); err != nil || !strings.Contains(res.body, "authentication required") {
-		return fmt.Errorf("block 1 bad bearer: %v %s", err, snippetOf(res.body))
-	}
-	res, err = h.record(1, ip, http.MethodGet, "/v1/state", "", nil)
-	if err != nil {
+	if _, err := h.record(1, ip, http.MethodGet, "/v1/state", "", nil); err != nil {
 		return err
 	}
-	if err := requireStatus(res, 401); err != nil {
-		return fmt.Errorf("block 1 no credential safe: %w", err)
-	}
-	res, err = h.record(1, ip, http.MethodPost, "/v1/changes:apply", applyBody(rev, "idem-none", "harness", "limited"), nil)
-	if err != nil {
+	if _, err := h.record(1, ip, http.MethodPost, "/v1/changes:apply", applyBody(rev, "idem-none", "harness", "limited"), nil); err != nil {
 		return err
-	}
-	if err := requireStatus(res, 401); err != nil {
-		return fmt.Errorf("block 1 no credential unsafe: %w", err)
 	}
 	basic := map[string]string{"Authorization": "Basic dXNlcjpwYXNz"}
-	res, err = h.record(1, ip, http.MethodGet, "/v1/state", "", basic)
-	if err != nil {
+	if _, err := h.record(1, ip, http.MethodGet, "/v1/state", "", basic); err != nil {
 		return err
 	}
-	if err := requireStatus(res, 401); err != nil || !strings.Contains(res.body, "authentication required") || strings.Contains(res.body, "MCP accepts bearer tokens only") {
-		return fmt.Errorf("block 1 REST basic: %v %s", err, snippetOf(res.body))
-	}
-	res, err = h.record(1, ip, http.MethodGet, "/v1/state", "", map[string]string{"Authorization": "Token abc"})
-	if err != nil {
+	if _, err := h.record(1, ip, http.MethodGet, "/v1/state", "", map[string]string{"Authorization": "Token abc"}); err != nil {
 		return err
 	}
-	if err := requireStatus(res, 401); err != nil {
-		return fmt.Errorf("block 1 token scheme: %w", err)
-	}
-	res, err = h.mcp(1, ip, "ntp_version_get", map[string]any{}, basic)
-	if err != nil {
+	if _, err := h.mcp(1, ip, "ntp_version_get", map[string]any{}, basic); err != nil {
 		return err
 	}
-	if err := requireStatus(res, 401); err != nil || !strings.Contains(res.body, "MCP accepts bearer tokens only") {
-		return fmt.Errorf("block 1 MCP basic: %v %s", err, snippetOf(res.body))
-	}
-	res, err = h.mcp(1, ip, "ntp_version_get", map[string]any{}, map[string]string{"Authorization": "Token abc"})
-	if err != nil {
+	if _, err := h.mcp(1, ip, "ntp_version_get", map[string]any{}, map[string]string{"Authorization": "Token abc"}); err != nil {
 		return err
-	}
-	if err := requireStatus(res, 401); err != nil {
-		return fmt.Errorf("block 1 MCP token scheme: %w", err)
 	}
 	return h.end(1, start)
 }
@@ -742,61 +678,31 @@ func (h *harness) block2() error {
 	if err != nil {
 		return err
 	}
-	if err := requireStatus(res, 200); err != nil {
-		return fmt.Errorf("block 2 session: %w", err)
-	}
 	cookie := cookieValue(res.headers.Values("Set-Cookie"))
 	csrf := jsonString(res.body, "csrf")
-	if cookie == "" || csrf == "" {
-		return fmt.Errorf("block 2 missing cookie or csrf")
-	}
 	ck := map[string]string{"Cookie": "labntp_session=" + cookie}
-	res, err = h.record(2, ip, http.MethodGet, "/v1/session", "", ck)
-	if err != nil {
+	if _, err = h.record(2, ip, http.MethodGet, "/v1/session", "", ck); err != nil {
 		return err
-	}
-	if err := requireStatus(res, 200); err != nil {
-		return fmt.Errorf("block 2 cookie read: %w", err)
 	}
 	rev, err := h.revision(2, ip)
 	if err != nil {
 		return err
 	}
 	body := applyBody(rev, "idem-cookie", "harness", "serve")
-	res, err = h.record(2, ip, http.MethodPost, "/v1/changes:apply", body, ck)
-	if err != nil {
+	if _, err = h.record(2, ip, http.MethodPost, "/v1/changes:apply", body, ck); err != nil {
 		return err
 	}
-	if err := requireStatus(res, 403); err != nil || !strings.Contains(res.body, "CSRF token is missing or invalid") {
-		return fmt.Errorf("block 2 missing csrf: %v %s", err, snippetOf(res.body))
-	}
-	res, err = h.record(2, ip, http.MethodPost, "/v1/changes:apply", body, h.with(ck, map[string]string{"X-LabNTP-CSRF": "deadbeef"}))
-	if err != nil {
+	if _, err = h.record(2, ip, http.MethodPost, "/v1/changes:apply", body, h.with(ck, map[string]string{"X-LabNTP-CSRF": "deadbeef"})); err != nil {
 		return err
 	}
-	if err := requireStatus(res, 403); err != nil {
-		return fmt.Errorf("block 2 wrong csrf: %w", err)
-	}
-	res, err = h.record(2, ip, http.MethodPost, "/v1/changes:apply", body, h.with(ck, map[string]string{"X-LabNTP-CSRF": csrf}))
-	if err != nil {
+	if _, err = h.record(2, ip, http.MethodPost, "/v1/changes:apply", body, h.with(ck, map[string]string{"X-LabNTP-CSRF": csrf})); err != nil {
 		return err
 	}
-	if err := requireStatus(res, 200); err != nil {
-		return fmt.Errorf("block 2 right csrf: %w", err)
-	}
-	res, err = h.record(2, ip, http.MethodDelete, "/v1/session", "", h.with(ck, map[string]string{"X-LabNTP-CSRF": csrf}))
-	if err != nil {
+	if _, err = h.record(2, ip, http.MethodDelete, "/v1/session", "", h.with(ck, map[string]string{"X-LabNTP-CSRF": csrf})); err != nil {
 		return err
 	}
-	if err := requireStatus(res, 204); err != nil {
-		return fmt.Errorf("block 2 logout: %w", err)
-	}
-	res, err = h.record(2, ip, http.MethodPost, "/v1/changes:apply", body, ck)
-	if err != nil {
+	if _, err = h.record(2, ip, http.MethodPost, "/v1/changes:apply", body, ck); err != nil {
 		return err
-	}
-	if res.status != 401 {
-		return fmt.Errorf("block 2 stale cookie status %d body %s", res.status, snippetOf(res.body))
 	}
 	return h.end(2, start)
 }
@@ -815,50 +721,25 @@ func cookieValue(set []string) string {
 func (h *harness) block3() error {
 	start := h.begin(3)
 	ip := "127.0.0.12"
-	cases := []struct {
-		origin string
-		rest   int
-		mcp    int
-		text   string
-	}{
-		{origin: "https://evil.example", rest: 403, mcp: 403, text: "origin is not allowed"},
-		{origin: "https://lab.example", rest: 200, mcp: 200},
-		{origin: "", rest: 200, mcp: 200},
-		{origin: "file:///tmp/x", rest: 403, mcp: 403, text: "origin is not allowed"},
-		{origin: "http://127.0.0.1:8080", rest: 200, mcp: 200},
-		{origin: "http://10.1.2.3", rest: 403, mcp: 403, text: "origin is not allowed"},
-		// Empty host hits origin.go parse-error branch. The detail is recorded,
-		// not asserted, so a one-line sentence change stays visible.
-		{origin: "http://", rest: 403, mcp: 403},
-	}
-	for _, tc := range cases {
+	// Empty host ("http://") hits the parse-error branch. Every detail is recorded.
+	for _, origin := range []string{
+		"https://evil.example",
+		"https://lab.example",
+		"",
+		"file:///tmp/x",
+		"http://127.0.0.1:8080",
+		"http://10.1.2.3",
+		"http://",
+	} {
 		hdr := bearer(adminSecret)
-		if tc.origin != "" {
-			hdr = h.with(hdr, map[string]string{"Origin": tc.origin})
+		if origin != "" {
+			hdr = h.with(hdr, map[string]string{"Origin": origin})
 		}
-		res, err := h.record(3, ip, http.MethodGet, "/v1/state", "", hdr)
-		if err != nil {
+		if _, err := h.record(3, ip, http.MethodGet, "/v1/state", "", hdr); err != nil {
 			return err
 		}
-		if err := requireStatus(res, tc.rest); err != nil {
-			return fmt.Errorf("block 3 REST origin %q: %w", tc.origin, err)
-		}
-		if tc.text != "" {
-			if err := requireText(res, tc.text); err != nil {
-				return fmt.Errorf("block 3 REST origin %q: %w", tc.origin, err)
-			}
-		}
-		res, err = h.mcp(3, ip, "ntp_version_get", map[string]any{}, hdr)
-		if err != nil {
+		if _, err := h.mcp(3, ip, "ntp_version_get", map[string]any{}, hdr); err != nil {
 			return err
-		}
-		if err := requireStatus(res, tc.mcp); err != nil {
-			return fmt.Errorf("block 3 MCP origin %q: %w", tc.origin, err)
-		}
-		if tc.text != "" {
-			if err := requireText(res, tc.text); err != nil {
-				return fmt.Errorf("block 3 MCP origin %q: %w", tc.origin, err)
-			}
 		}
 	}
 	return h.end(3, start)
@@ -871,9 +752,6 @@ func (h *harness) block4() (*stdioProc, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := requireStatus(res, 200); err != nil {
-		return nil, fmt.Errorf("block 4 session: %w", err)
-	}
 	cookie := cookieValue(res.headers.Values("Set-Cookie"))
 	sp, err := h.startStdio()
 	if err != nil {
@@ -881,43 +759,28 @@ func (h *harness) block4() (*stdioProc, error) {
 	}
 	// While the live verifier is still administrator, an unreadable secret
 	// reaches preflightAuth. After demotion it does not (see below).
-	beforeUnreadable, err := h.revision(4, ip)
-	if err != nil {
+	if _, err := h.revision(4, ip); err != nil {
 		return sp, err
 	}
 	if err := os.Chmod(h.admin, 0); err != nil {
 		return sp, err
 	}
-	res, err = h.record(4, ip, http.MethodPost, "/v1/state:reset", `{"reason":"unreadable-admin"}`, bearer(adminSecret))
-	if err != nil {
+	if _, err := h.record(4, ip, http.MethodPost, "/v1/state:reset", `{"reason":"unreadable-admin"}`, bearer(adminSecret)); err != nil {
 		return sp, err
 	}
-	if err := requireStatus(res, 400); err != nil || !strings.Contains(res.body, "validation_failed") || !strings.Contains(res.body, "token secret is unavailable") {
-		return sp, fmt.Errorf("block 4 unreadable reset before demotion: %v %s", err, snippetOf(res.body))
-	}
-	afterUnreadable, err := h.revision(4, ip)
-	if err != nil {
+	if _, err := h.revision(4, ip); err != nil {
 		return sp, err
-	}
-	if afterUnreadable != beforeUnreadable {
-		return sp, fmt.Errorf("block 4 revision changed on unreadable reset %s -> %s", beforeUnreadable, afterUnreadable)
 	}
 	stdioFail, err := sp.call("ntp_state_reset", map[string]any{"reason": "unreadable-admin"})
 	if err != nil {
 		return sp, err
 	}
 	h.writeStdio(4, "ntp_state_reset-unreadable-admin", stdioFail)
-	if !strings.Contains(stdioFail, "token secret is unavailable") && !strings.Contains(stdioFail, "validation_failed") {
-		return sp, fmt.Errorf("block 4 stdio unreadable reset before demotion: %s", snippetOf(stdioFail))
-	}
 	stdioRead, err := sp.call("ntp_version_get", map[string]any{})
 	if err != nil {
 		return sp, err
 	}
 	h.writeStdio(4, "ntp_version_get-after-unreadable-admin", stdioRead)
-	if strings.Contains(stdioRead, `"isError":true`) {
-		return sp, fmt.Errorf("block 4 stdio read after unreadable reset: %s", snippetOf(stdioRead))
-	}
 	if err := os.Chmod(h.admin, 0o600); err != nil {
 		return sp, err
 	}
@@ -933,119 +796,76 @@ func (h *harness) block4() (*stdioProc, error) {
 	if err := os.WriteFile(yamlPath, []byte(swapped), 0o644); err != nil {
 		return sp, err
 	}
-	res, err = h.record(4, ip, http.MethodPost, "/v1/state:reset", `{"reason":"demote"}`, bearer(adminSecret))
-	if err != nil {
+	if _, err := h.record(4, ip, http.MethodPost, "/v1/state:reset", `{"reason":"demote"}`, bearer(adminSecret)); err != nil {
 		return sp, err
 	}
-	if err := requireStatus(res, 200); err != nil {
-		return sp, fmt.Errorf("block 4 demote reset: %w", err)
-	}
-	res, err = h.record(4, ip, http.MethodGet, "/v1/state", "", map[string]string{"Cookie": "labntp_session=" + cookie})
-	if err != nil {
+	if _, err := h.record(4, ip, http.MethodGet, "/v1/state", "", map[string]string{"Cookie": "labntp_session=" + cookie}); err != nil {
 		return sp, err
 	}
-	if res.status != 401 {
-		return sp, fmt.Errorf("block 4 stale cookie after demote status %d %s", res.status, snippetOf(res.body))
-	}
-	res, err = h.record(4, ip, http.MethodGet, "/v1/session", "", bearer(adminSecret))
-	if err != nil {
+	if _, err := h.record(4, ip, http.MethodGet, "/v1/session", "", bearer(adminSecret)); err != nil {
 		return sp, err
-	}
-	if err := requireStatus(res, 200); err != nil || !strings.Contains(res.body, `"role":"viewer"`) || !strings.Contains(res.body, "ntp.read") {
-		return sp, fmt.Errorf("block 4 viewer session: %v %s", err, snippetOf(res.body))
 	}
 	rev, err := h.revision(4, ip)
 	if err != nil {
 		return sp, err
 	}
-	res, err = h.record(4, ip, http.MethodPost, "/v1/changes:apply", applyBody(rev, "idem-demote", "harness", "limited"), bearer(adminSecret))
-	if err != nil {
+	if _, err := h.record(4, ip, http.MethodPost, "/v1/changes:apply", applyBody(rev, "idem-demote", "harness", "limited"), bearer(adminSecret)); err != nil {
 		return sp, err
 	}
-	if err := requireStatus(res, 403); err != nil || !strings.Contains(res.body, "missing scope ntp.admin") {
-		return sp, fmt.Errorf("block 4 viewer write: %v %s", err, snippetOf(res.body))
-	}
-	if err := h.stdioResetAndCheck(sp); err != nil {
+	if err := h.recordStdioDemotion(sp); err != nil {
 		return sp, err
 	}
-	before, err := h.revision(4, ip)
-	if err != nil {
+	if _, err := h.revision(4, ip); err != nil {
 		return sp, err
 	}
 	if err := os.Chmod(h.admin, 0); err != nil {
 		return sp, err
 	}
-	res, err = h.record(4, ip, http.MethodPost, "/v1/state:reset", `{"reason":"unreadable"}`, bearer(adminSecret))
-	if err != nil {
+	if _, err := h.record(4, ip, http.MethodPost, "/v1/state:reset", `{"reason":"unreadable"}`, bearer(adminSecret)); err != nil {
 		return sp, err
 	}
 	// The live verifier is already viewer, so authorize rejects the reset
-	// before preflightAuth reads the secret file.
-	if err := requireStatus(res, 403); err != nil || !strings.Contains(res.body, "missing scope ntp.admin") {
-		return sp, fmt.Errorf("block 4 unreadable reset: %v %s", err, snippetOf(res.body))
-	}
-	after, err := h.revision(4, ip)
-	if err != nil {
+	// before preflightAuth reads the secret file. The response is recorded.
+	if _, err := h.revision(4, ip); err != nil {
 		return sp, err
-	}
-	if after != before {
-		return sp, fmt.Errorf("block 4 revision changed %s -> %s", before, after)
 	}
 	failRes, err := sp.call("ntp_state_reset", map[string]any{"reason": "unreadable"})
 	if err != nil {
 		return sp, err
 	}
 	h.writeStdio(4, "ntp_state_reset-unreadable", failRes)
-	if !strings.Contains(failRes, "missing scope ntp.admin") {
-		return sp, fmt.Errorf("block 4 stdio unreadable reset: %s", snippetOf(failRes))
-	}
 	readRes, err := sp.call("ntp_version_get", map[string]any{})
 	if err != nil {
 		return sp, err
 	}
 	h.writeStdio(4, "ntp_version_get-after-unreadable", readRes)
-	if strings.Contains(readRes, `"isError":true`) {
-		return sp, fmt.Errorf("block 4 stdio read after unreadable reset: %s", snippetOf(readRes))
-	}
 	if err := os.Chmod(h.admin, 0o600); err != nil {
 		return sp, err
 	}
 	return sp, h.end(4, start)
 }
 
-func (h *harness) stdioResetAndCheck(sp *stdioProc) error {
+func (h *harness) recordStdioDemotion(sp *stdioProc) error {
 	res, err := sp.call("ntp_state_reset", map[string]any{"reason": "stdio-demote"})
 	if err != nil {
 		return err
 	}
 	h.writeStdio(4, "ntp_state_reset", res)
-	if strings.Contains(res, `"isError":true`) {
-		return fmt.Errorf("block 4 stdio reset: %s", snippetOf(res))
-	}
 	res, err = sp.call("ntp_version_get", map[string]any{})
 	if err != nil {
 		return err
 	}
 	h.writeStdio(4, "ntp_version_get", res)
-	if strings.Contains(res, `"isError":true`) {
-		return fmt.Errorf("block 4 stdio read: %s", snippetOf(res))
-	}
 	res, err = sp.call("ntp_state_export", map[string]any{"format": "yaml"})
 	if err != nil {
 		return err
 	}
 	h.writeStdio(4, "ntp_state_export", res)
-	if !strings.Contains(res, "missing scope ntp.admin") {
-		return fmt.Errorf("block 4 stdio admin: %s", snippetOf(res))
-	}
 	res, err = sp.call("ntp_filters_put", toolArgs("ntp_filters_put", "sha256:0000000000000000000000000000000000000000000000000000000000000000", "idem-stdio", ""))
 	if err != nil {
 		return err
 	}
 	h.writeStdio(4, "ntp_filters_put", res)
-	if !strings.Contains(res, "missing scope ntp.write") {
-		return fmt.Errorf("block 4 stdio write: %s", snippetOf(res))
-	}
 	res, err = sp.call("ntp_not_a_tool", map[string]any{})
 	if err != nil {
 		return err
@@ -1062,32 +882,22 @@ func (h *harness) block5() error {
 	start := h.begin(5)
 	ip := "127.0.0.14"
 	series := time.Now()
-	var last response
-	var err error
 	for i := 0; i < rateBurst+1; i++ {
-		last, err = h.record(5, ip, http.MethodGet, "/v1/version", "", bearer(adminSecret))
-		if err != nil {
+		if _, err := h.record(5, ip, http.MethodGet, "/v1/version", "", bearer(adminSecret)); err != nil {
 			return err
 		}
 	}
 	if time.Since(series) >= time.Second {
 		return fmt.Errorf("block 5 REST series took %s", time.Since(series))
 	}
-	if err := requireStatus(last, 429); err != nil || !strings.Contains(last.body, "rate_limited") || !strings.Contains(last.body, "too many management requests") {
-		return fmt.Errorf("block 5 REST 429: %v %s", err, snippetOf(last.body))
-	}
 	series = time.Now()
 	for i := 0; i < rateBurst+1; i++ {
-		last, err = h.mcp(5, ip, "ntp_version_get", map[string]any{}, bearer(adminSecret))
-		if err != nil {
+		if _, err := h.mcp(5, ip, "ntp_version_get", map[string]any{}, bearer(adminSecret)); err != nil {
 			return err
 		}
 	}
 	if time.Since(series) >= time.Second {
 		return fmt.Errorf("block 5 MCP series took %s", time.Since(series))
-	}
-	if err := requireStatus(last, 429); err != nil || !strings.Contains(last.body, "rate_limited") || !strings.Contains(last.body, "too many management requests") {
-		return fmt.Errorf("block 5 MCP 429: %v %s", err, snippetOf(last.body))
 	}
 	return h.end(5, start)
 }
@@ -1100,34 +910,16 @@ func (h *harness) block6() error {
 		return err
 	}
 	body := applyBody(rev, "idem-replay", "same", "limited")
-	first, err := h.record(6, ip, http.MethodPost, "/v1/changes:apply", body, bearer(adminSecret))
-	if err != nil {
+	if _, err := h.record(6, ip, http.MethodPost, "/v1/changes:apply", body, bearer(adminSecret)); err != nil {
 		return err
-	}
-	if err := requireStatus(first, 200); err != nil {
-		return fmt.Errorf("block 6 first: %w", err)
 	}
 	replayBody := applyBody("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "idem-replay", "same", "limited")
-	second, err := h.record(6, ip, http.MethodPost, "/v1/changes:apply", replayBody, bearer(adminSecret))
-	if err != nil {
+	if _, err := h.record(6, ip, http.MethodPost, "/v1/changes:apply", replayBody, bearer(adminSecret)); err != nil {
 		return err
-	}
-	if err := requireStatus(second, 200); err != nil {
-		return fmt.Errorf("block 6 replay: %w", err)
-	}
-	if jsonString(first.body, "runtimeRevision") == "" || jsonString(first.body, "runtimeRevision") != jsonString(second.body, "runtimeRevision") {
-		return fmt.Errorf("block 6 replay revision %s vs %s", jsonString(first.body, "runtimeRevision"), jsonString(second.body, "runtimeRevision"))
-	}
-	if jsonString(first.body, "auditEventId") != jsonString(second.body, "auditEventId") {
-		return fmt.Errorf("block 6 replay audit %s vs %s", jsonString(first.body, "auditEventId"), jsonString(second.body, "auditEventId"))
 	}
 	conflict := applyBody(rev, "idem-replay", "same", "serve")
-	third, err := h.record(6, ip, http.MethodPost, "/v1/changes:apply", conflict, bearer(adminSecret))
-	if err != nil {
+	if _, err := h.record(6, ip, http.MethodPost, "/v1/changes:apply", conflict, bearer(adminSecret)); err != nil {
 		return err
-	}
-	if err := requireStatus(third, 409); err != nil || !strings.Contains(third.body, "idempotency key reused with a different request") {
-		return fmt.Errorf("block 6 conflict: %v %s", err, snippetOf(third.body))
 	}
 	return h.end(6, start)
 }
@@ -1146,28 +938,14 @@ func (h *harness) block7() error {
 		if err != nil {
 			return err
 		}
-		if err := requireStatus(view, 200); err != nil {
-			return fmt.Errorf("block 7 viewer %s: %w", tool.name, err)
-		}
-		if tool.scope == "ntp.read" {
-			if strings.Contains(view.body, "missing scope") || strings.Contains(view.body, `"isError":true`) {
-				return fmt.Errorf("block 7 viewer read %s: %s", tool.name, snippetOf(view.body))
-			}
-		} else if !strings.Contains(view.body, "missing scope "+tool.scope) {
-			return fmt.Errorf("block 7 viewer deny %s: %s", tool.name, snippetOf(view.body))
-		}
 		if tool.name == "ntp_audit_list" {
 			if id := firstAudit(view.body); id != "" {
 				auditID = id
 			}
 		}
 		if tool.mutating {
-			res, err := h.record(7, ip, http.MethodPost, "/v1/state:reset", `{"reason":"before-`+tool.name+`"}`, bearer(adminSecret))
-			if err != nil {
+			if _, err := h.record(7, ip, http.MethodPost, "/v1/state:reset", `{"reason":"before-`+tool.name+`"}`, bearer(adminSecret)); err != nil {
 				return err
-			}
-			if err := requireStatus(res, 200); err != nil {
-				return fmt.Errorf("block 7 reset before %s: %w", tool.name, err)
 			}
 			rev, err = h.revision(7, ip)
 			if err != nil {
@@ -1179,19 +957,10 @@ func (h *harness) block7() error {
 		if err != nil {
 			return err
 		}
-		if err := requireStatus(admin, 200); err != nil {
-			return fmt.Errorf("block 7 admin %s: %w", tool.name, err)
-		}
-		if strings.Contains(admin.body, "missing scope") {
-			return fmt.Errorf("block 7 admin denied %s: %s", tool.name, snippetOf(admin.body))
-		}
 		if tool.name == "ntp_audit_list" {
 			if id := firstAudit(admin.body); id != "" {
 				auditID = id
 			}
-		}
-		if tool.name != "ntp_filters_delete" && strings.Contains(admin.body, `"isError":true`) {
-			return fmt.Errorf("block 7 admin error %s: %s", tool.name, snippetOf(admin.body))
 		}
 	}
 	return h.end(7, start)

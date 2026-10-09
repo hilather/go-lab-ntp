@@ -12,9 +12,6 @@ func TestCharacterizeIdempotency(t *testing.T) {
 	if defaultIdempotencyMax != 256 {
 		t.Fatalf("capacity %d", defaultIdempotencyMax)
 	}
-	if newIdempCache(0).max != 256 {
-		t.Fatal("non-positive max must become 256")
-	}
 	empty := newIdempCache(4)
 	hit, err := empty.lookup("", "fp")
 	if err != nil || hit != nil {
@@ -93,25 +90,23 @@ func TestCharacterizeIdempotency(t *testing.T) {
 	_, err = svc.Apply(ctx, a, replay)
 	assertIdemConflict(t, err)
 
-	cache := newIdempCache(256)
+	// newIdempCache(0) substitutes 256. The 257th key evicts the least recently used.
+	cache := newIdempCache(0)
 	for i := 0; i < 256; i++ {
 		cache.storePlan(keyN(i), "fp", &Plan{PreviousRevision: "sha256:aa"})
 	}
-	if _, err := cache.lookup(keyN(0), "fp"); err != nil {
-		t.Fatal(err)
+	if hit, err := cache.lookup(keyN(0), "fp"); err != nil || hit == nil {
+		t.Fatalf("256 keys must fit: %v %v", hit, err)
 	}
 	cache.storePlan("k-new", "fp", &Plan{PreviousRevision: "sha256:bb"})
-	if _, ok := cache.entries[keyN(0)]; !ok {
+	if hit, err := cache.lookup(keyN(0), "fp"); err != nil || hit == nil {
 		t.Fatal("touched key must survive")
 	}
-	if _, ok := cache.entries[keyN(1)]; ok {
+	if hit, err := cache.lookup(keyN(1), "fp"); err != nil || hit != nil {
 		t.Fatal("least recently used key must be evicted")
 	}
-	if _, ok := cache.entries["k-new"]; !ok {
+	if hit, err := cache.lookup("k-new", "fp"); err != nil || hit == nil {
 		t.Fatal("inserted key missing")
-	}
-	if len(cache.entries) != 256 {
-		t.Fatalf("len %d", len(cache.entries))
 	}
 }
 

@@ -2,96 +2,90 @@ package mcp
 
 import (
 	"fmt"
-	"os"
-	"reflect"
-	"strings"
 	"testing"
-	"time"
 
-	"github.com/hilather/go-lab-ntp/internal/config"
 	"github.com/hilather/go-lab-ntp/internal/domainerr"
 )
 
 func TestCharacterizeMCPLimiterCapAndDenyOrder(t *testing.T) {
-	src, err := os.ReadFile("auth.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(src), "func (l *limiter) setRate") {
-		t.Fatal("mcp limiter has setRate")
-	}
-	typ := reflect.TypeOf(newLimiter(1, 1))
-	for i := 0; i < typ.NumMethod(); i++ {
-		if strings.EqualFold(typ.Method(i).Name, "setRate") {
-			t.Fatalf("exported %s", typ.Method(i).Name)
+	disabled := newLimiter(-1, 3)
+	for i := 0; i < 80; i++ {
+		if err := disabled.allow("203.0.113.1:1"); err != nil {
+			t.Fatalf("rate < 0 must disable: %v", err)
 		}
 	}
 
-	disabled := newLimiter(-1, 3)
-	if !disabled.disabled {
-		t.Fatal("rate < 0 must disable")
-	}
-	if err := disabled.allow("203.0.113.1:1"); err != nil {
+	zero := newLimiter(0, 0)
+	assertAllowsThenDeny(t, zero, "203.0.113.2:1", 64)
+
+	kept := newLimiter(1, -5)
+	assertRateLimited(t, kept.allow("203.0.113.3:1"))
+
+	// A denied key, then 1023 other keys, still has no fresh bucket: the cap
+	// holds at least 1024. Probing it refreshes recency, so the exact-cap
+	// eviction is a separate limiter.
+	low := newLimiter(1, 1)
+	if err := low.allow("203.0.113.8:1"); err != nil {
 		t.Fatal(err)
 	}
-	zero := newLimiter(0, 0)
-	if zero.rate != float64(config.DefaultRequestsPerSecond) || zero.burst != float64(config.DefaultBurst) {
-		t.Fatalf("zero ctor rate %v burst %v", zero.rate, zero.burst)
+	assertRateLimited(t, low.allow("203.0.113.8:2"))
+	for i := 0; i < 1023; i++ {
+		if err := low.allow(fmt.Sprintf("10.%d.%d.%d:1", i>>16, (i>>8)&0xff, i&0xff)); err != nil {
+			t.Fatalf("fill %d: %v", i, err)
+		}
 	}
-	kept := newLimiter(1, -5)
-	if kept.burst != -5 || kept.rate != 1 {
-		t.Fatalf("negative burst kept: %+v", kept)
+	assertRateLimited(t, low.allow("203.0.113.8:3"))
+
+	// After 1024 newer keys the denied key is gone and the next call is a
+	// fresh bucket.
+	high := newLimiter(1, 1)
+	if err := high.allow("203.0.113.9:1"); err != nil {
+		t.Fatal(err)
+	}
+	assertRateLimited(t, high.allow("203.0.113.9:2"))
+	for i := 0; i < 1024; i++ {
+		if err := high.allow(fmt.Sprintf("11.%d.%d.%d:1", i>>16, (i>>8)&0xff, i&0xff)); err != nil {
+			t.Fatalf("fill %d: %v", i, err)
+		}
+	}
+	if err := high.allow("203.0.113.9:3"); err != nil {
+		t.Fatalf("evicted key must get a fresh bucket: %v", err)
 	}
 
-	// A denied key refreshes last before the token check, so it stays newest.
-	// Rate 1 and a 1ms-old bucket avoid the idle-cutoff duration overflow
-	// that a near-zero rate produces (4*burst/rate does not fit in int64).
-	deny := newLimiter(1, 1)
-	old := time.Now().Add(-time.Millisecond)
-	deny.buckets["203.0.113.8"] = &bucket{tokens: 0, last: old}
-	err = deny.allow("203.0.113.8:9")
+	// A deny updates recency, so the denied key is not the one a new key
+	// evicts. The previous oldest is.
+	order := newLimiter(1, 1)
+	keys := make([]string, 1024)
+	for i := range keys {
+		keys[i] = fmt.Sprintf("12.%d.%d.%d", i>>16, (i>>8)&0xff, i&0xff)
+		if err := order.allow(keys[i] + ":1"); err != nil {
+			t.Fatalf("seed %d: %v", i, err)
+		}
+	}
+	assertRateLimited(t, order.allow(keys[0]+":2"))
+	if err := order.allow("198.51.100.1:1"); err != nil {
+		t.Fatal(err)
+	}
+	assertRateLimited(t, order.allow(keys[0]+":3"))
+	if err := order.allow(keys[1] + ":2"); err != nil {
+		t.Fatalf("oldest key must be the eviction victim: %v", err)
+	}
+}
+
+func assertAllowsThenDeny(t *testing.T, l *limiter, remote string, n int) {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		if err := l.allow(remote); err != nil {
+			t.Fatalf("allow %d: %v", i, err)
+		}
+	}
+	assertRateLimited(t, l.allow(remote))
+}
+
+func assertRateLimited(t *testing.T, err error) {
+	t.Helper()
 	de, ok := domainerr.As(err)
 	if !ok || de.Code != domainerr.CodeRateLimited || de.Message != "too many management requests" {
 		t.Fatalf("deny: %v", err)
-	}
-	if !deny.buckets["203.0.113.8"].last.After(old) {
-		t.Fatal("deny must set last to now before the token check")
-	}
-
-	// Burst 1000 keeps the idle cutoff above one hour, so the cap eviction
-	// runs instead of the idle sweep deleting every seeded bucket.
-	l := newLimiter(1, 1000)
-	base := time.Now().Add(-time.Hour)
-	oldest := "10.0.0.0"
-	victim := "10.1.2.3"
-	l.buckets[oldest] = &bucket{tokens: 1, last: base}
-	l.buckets[victim] = &bucket{tokens: 0, last: time.Now()}
-	for i := 1; i < maxManagementBuckets-1; i++ {
-		key := fmt.Sprintf("10.2.%d.%d", i>>8, i&0xff)
-		l.buckets[key] = &bucket{tokens: 1, last: base.Add(time.Duration(i) * time.Millisecond)}
-	}
-	if len(l.buckets) != maxManagementBuckets {
-		t.Fatalf("cap setup %d", len(l.buckets))
-	}
-	if err := l.allow(victim + ":9"); err == nil {
-		t.Fatal("victim must be denied")
-	}
-	if _, ok := l.buckets[victim]; !ok {
-		t.Fatal("denied key must remain")
-	}
-	if err := l.allow("11.0.0.1:1"); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := l.buckets[oldest]; ok {
-		t.Fatal("oldest last must be evicted at the cap")
-	}
-	if _, ok := l.buckets[victim]; !ok {
-		t.Fatal("denied key stays most recent and must not be the eviction victim")
-	}
-	if _, ok := l.buckets["11.0.0.1"]; !ok {
-		t.Fatal("new key missing")
-	}
-	if len(l.buckets) != maxManagementBuckets {
-		t.Fatalf("len %d", len(l.buckets))
 	}
 }

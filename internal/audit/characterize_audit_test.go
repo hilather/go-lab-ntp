@@ -10,10 +10,26 @@ func TestCharacterizeAuditRow(t *testing.T) {
 	if DefaultMax != 128 {
 		t.Fatalf("DefaultMax %d", DefaultMax)
 	}
-	ring := NewRing(0)
-	if ring.max != DefaultMax {
-		t.Fatalf("NewRing(0) max %d", ring.max)
+	capped := NewRing(0)
+	for i := 0; i < 129; i++ {
+		capped.Append(Event{Time: time.Unix(int64(i), 0).UTC(), Capability: "changes.apply"})
 	}
+	if capped.Len() != 128 {
+		t.Fatalf("len %d", capped.Len())
+	}
+	if _, ok := capped.Get("aud-1"); ok {
+		t.Fatal("129th append must drop the oldest")
+	}
+	second, ok := capped.Get("aud-2")
+	if !ok || second.ID != "aud-2" {
+		t.Fatalf("aud-2 %+v %v", second, ok)
+	}
+	newest := capped.List(1)
+	if len(newest) != 1 || newest[0].ID != "aud-129" {
+		t.Fatalf("newest %+v", newest)
+	}
+
+	ring := NewRing(0)
 	for i := 0; i < 101; i++ {
 		ring.Append(Event{Time: time.Unix(int64(i), 0).UTC(), Capability: "changes.apply"})
 	}

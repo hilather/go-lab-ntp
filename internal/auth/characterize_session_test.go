@@ -23,8 +23,8 @@ func TestCharacterizeSessionCookieFlags(t *testing.T) {
 		t.Fatalf("MaxAge %d", store.MaxAge())
 	}
 	substituted := NewStore(SessionConfig{Idle: -1, Absolute: 0, Max: 0})
-	if substituted.MaxAge() != store.MaxAge() || substituted.cfg.Idle != def.Idle || substituted.cfg.Max != 64 {
-		t.Fatalf("non-positive config was not substituted: %+v", substituted.cfg)
+	if substituted.MaxAge() != store.MaxAge() || substituted.MaxAge() != int(def.Absolute.Seconds()) {
+		t.Fatalf("non-positive absolute was not substituted: MaxAge %d", substituted.MaxAge())
 	}
 
 	c := NewSessionCookie("abc", false, store.MaxAge())
@@ -150,6 +150,27 @@ func TestCharacterizeSessionTTL(t *testing.T) {
 			t.Fatal("absolute TTL")
 		}
 	})
+
+	t.Run("non-positive idle expires at 4h", func(t *testing.T) {
+		st, cur := clockedStore(t, SessionConfig{Idle: -1, Absolute: 0, Max: 0})
+		base := *cur
+		first, _, _, err := st.Create(adminPrincipal())
+		if err != nil {
+			t.Fatal(err)
+		}
+		second, _, _, err := st.Create(adminPrincipal())
+		if err != nil {
+			t.Fatal(err)
+		}
+		*cur = base.Add(4 * time.Hour)
+		if _, _, ok := st.Lookup(first); !ok {
+			t.Fatal("substituted idle still holds at 4h")
+		}
+		*cur = base.Add(4*time.Hour + time.Second)
+		if _, _, ok := st.Lookup(second); ok {
+			t.Fatal("substituted idle expires after 4h")
+		}
+	})
 }
 
 func TestCharacterizeSessionAtCap(t *testing.T) {
@@ -204,6 +225,30 @@ func TestCharacterizeSessionAtCap(t *testing.T) {
 			t.Fatal("second-oldest must remain")
 		}
 	})
+
+	t.Run("non-positive max evicts on the 65th", func(t *testing.T) {
+		st, cur := clockedStore(t, SessionConfig{Idle: -1, Absolute: 0, Max: 0})
+		base := *cur
+		cookies := make([]string, 64)
+		for i := 0; i < 64; i++ {
+			*cur = base.Add(time.Duration(i) * time.Second)
+			cookie, _, _, err := st.Create(principal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cookies[i] = cookie
+		}
+		*cur = base.Add(63 * time.Second)
+		if _, _, _, err := st.Create(principal); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, ok := st.Lookup(cookies[0]); ok {
+			t.Fatal("65th session must evict the oldest")
+		}
+		if _, _, ok := st.Lookup(cookies[1]); !ok {
+			t.Fatal("second-oldest must remain")
+		}
+	})
 }
 
 func adminPrincipal() Principal {
@@ -215,7 +260,15 @@ func adminPrincipal() Principal {
 	}
 }
 
-func clockedStore(t *testing.T, cfg SessionConfig) (*Store, *time.Time) {
+// sessionAPI is the method set these tests call. The concrete type is inferred
+// from NewStore.
+type sessionAPI interface {
+	Create(Principal) (string, string, Session, error)
+	Lookup(string) (Session, string, bool)
+	ValidCSRF(string, string) bool
+}
+
+func clockedStore(t *testing.T, cfg SessionConfig) (sessionAPI, *time.Time) {
 	t.Helper()
 	cur := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	st := NewStore(cfg)

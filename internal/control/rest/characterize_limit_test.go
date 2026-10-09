@@ -14,65 +14,65 @@ func TestCharacterizeRESTLimiterCtorAndSetRate(t *testing.T) {
 	}
 
 	disabled := newLimiter(-1, 1)
-	if !disabled.disabled {
-		t.Fatal("rate < 0 must disable")
-	}
-	if err := disabled.allow("203.0.113.1:1"); err != nil {
-		t.Fatal(err)
+	for i := 0; i < 80; i++ {
+		if err := disabled.allow("203.0.113.1:1"); err != nil {
+			t.Fatalf("rate < 0 must disable: %v", err)
+		}
 	}
 	disabled.setRate(9, 9)
-	if !disabled.disabled || disabled.rate != 0 || disabled.burst != 0 {
-		t.Fatalf("disabled setRate changed the limiter: %+v", disabled)
+	for i := 0; i < 80; i++ {
+		if err := disabled.allow("203.0.113.1:1"); err != nil {
+			t.Fatalf("disabled setRate changed the limiter: %v", err)
+		}
 	}
 
 	zero := newLimiter(0, 0)
-	if zero.disabled || zero.rate != 32 || zero.burst != 64 {
-		t.Fatalf("zero ctor %+v", zero)
-	}
+	assertAllowsThenDeny(t, zero, "203.0.113.2:1", 64)
+
 	negBurst := newLimiter(1, -5)
-	if negBurst.disabled || negBurst.rate != 1 || negBurst.burst != -5 {
-		t.Fatalf("negative burst is kept at construction: %+v", negBurst)
-	}
+	assertRateLimited(t, negBurst.allow("203.0.113.3:1"))
 
 	live := newLimiter(5, 7)
+	assertAllowsThenDeny(t, live, "203.0.113.4:1", 7)
 	live.setRate(0, 0)
-	if live.rate != 32 || live.burst != 64 {
-		t.Fatalf("setRate zero %+v", live)
-	}
+	assertAllowsThenDeny(t, live, "203.0.113.5:1", 64)
 	live.setRate(-1, -2)
-	if live.rate != 32 || live.burst != 64 || live.disabled {
-		t.Fatalf("setRate negative %+v", live)
-	}
+	assertAllowsThenDeny(t, live, "203.0.113.6:1", 64)
 	live.setRate(3, 9)
-	if live.rate != 3 || live.burst != 9 {
-		t.Fatalf("setRate positive %+v", live)
-	}
+	assertAllowsThenDeny(t, live, "203.0.113.7:1", 9)
 
-	// Idle cutoff is max(30s, 4*burst/rate). burst 10 at 1/s is 40s.
-	// After setRate(10, 10) it falls to 30s, so a 35s-idle bucket is evicted.
+	// Idle cutoff is max(30s, 4*burst/rate). burst 10 at 1/s is 40s, so a
+	// 35s-idle exhausted bucket stays denied. After setRate(10, 10) the
+	// cutoff falls to 30s and the same age is a fresh bucket.
 	idle := newLimiter(1, 10)
-	if err := idle.allow("203.0.113.5:9"); err != nil {
-		t.Fatal(err)
+	remote := "203.0.113.8:9"
+	for i := 0; i < 10; i++ {
+		if err := idle.allow(remote); err != nil {
+			t.Fatalf("fill %d: %v", i, err)
+		}
 	}
-	now := time.Now()
-	idle.mu.Lock()
-	idle.buckets["203.0.113.5"].last = now.Add(-35 * time.Second)
-	idle.mu.Unlock()
-	idle.evictIdleLocked(now)
-	if _, ok := idle.buckets["203.0.113.5"]; !ok {
-		t.Fatal("35s is inside the 40s cutoff")
-	}
+	assertRateLimited(t, idle.allow(remote))
+	idle.evictIdleLocked(time.Now().Add(35 * time.Second))
+	assertRateLimited(t, idle.allow(remote))
 	idle.setRate(10, 10)
-	idle.evictIdleLocked(now)
-	if _, ok := idle.buckets["203.0.113.5"]; ok {
+	idle.evictIdleLocked(time.Now().Add(35 * time.Second))
+	if err := idle.allow(remote); err != nil {
 		t.Fatal("35s is outside the 30s cutoff after setRate")
 	}
+}
 
-	limited := newLimiter(1, 1)
-	if err := limited.allow("203.0.113.9:1"); err != nil {
-		t.Fatal(err)
+func assertAllowsThenDeny(t *testing.T, l *limiter, remote string, n int) {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		if err := l.allow(remote); err != nil {
+			t.Fatalf("%s allow %d: %v", remote, i, err)
+		}
 	}
-	err := limited.allow("203.0.113.9:2")
+	assertRateLimited(t, l.allow(remote))
+}
+
+func assertRateLimited(t *testing.T, err error) {
+	t.Helper()
 	de, ok := domainerr.As(err)
 	if !ok || de.Code != domainerr.CodeRateLimited || de.Message != "too many management requests" {
 		t.Fatalf("deny: %v", err)
