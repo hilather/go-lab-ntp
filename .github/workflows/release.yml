@@ -1,7 +1,16 @@
 # LabNTP tag gate + GHCR publish.
 #
 # tag-gate runs on v* tag push and workflow_dispatch (re-gate only).
-# publish-image runs only on push of tags v* (never dispatch).
+# publish-image runs only on push of tags v* (never dispatch) and builds
+# only the commit tag-gate approved.
+#
+# The tag must match ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$.
+# The tag is validated before checkout. Checkout is only refs/tags/<tag>.
+# The step fails unless HEAD is that tag's peeled commit, and that commit
+# is passed as -sha. The workflow retries only exit 75.
+# Checkout used to take the raw ref, so a branch named like the tag could
+# win actions/checkout, and the retry loop used to retry whenever the
+# command output contained the word pending or the phrase no matching run.
 
 name: Release
 
@@ -12,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Git tag (vX.Y.Z) or commit to gate
+        description: Release tag to re-gate (vX.Y.Z or refs/tags/vX.Y.Z)
         required: true
         type: string
 
@@ -36,22 +45,71 @@ jobs:
     name: tag-gate
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      sha: ${{ steps.rev.outputs.sha }}
+      ref: ${{ steps.rev.outputs.ref }}
     steps:
+      - name: Canonicalize release ref
+        id: tag
+        env:
+          RELEASE_REF: ${{ github.event.inputs.ref || github.ref }}
+        run: |
+          set -euo pipefail
+          ref="$RELEASE_REF"
+          # Trim ends only. Internal whitespace still fails the pattern.
+          ref="${ref#"${ref%%[![:space:]]*}"}"
+          ref="${ref%"${ref##*[![:space:]]}"}"
+          case "$ref" in
+            refs/tags/*) ref="${ref#refs/tags/}" ;;
+          esac
+          re='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          if [[ ! "$ref" =~ $re ]]; then
+            echo "ref is not a release tag" >&2
+            exit 1
+          fi
+          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ github.event.inputs.ref || github.ref }}
+          ref: refs/tags/${{ steps.tag.outputs.ref }}
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Record exact commit
+      - name: Resolve tag and peeled commit
         id: rev
+        env:
+          RELEASE_REF: ${{ steps.tag.outputs.ref }}
         run: |
           set -euo pipefail
-          sha="$(git rev-parse HEAD)"
+          ref="$RELEASE_REF"
+          # Trim ends only. Internal whitespace still fails the pattern.
+          ref="${ref#"${ref%%[![:space:]]*}"}"
+          ref="${ref%"${ref##*[![:space:]]}"}"
+          case "$ref" in
+            refs/tags/*) ref="${ref#refs/tags/}" ;;
+          esac
+          re='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          if [[ ! "$ref" =~ $re ]]; then
+            echo "ref is not a release tag" >&2
+            exit 1
+          fi
+          notes="docs/releases/${ref}.md"
+          if [ ! -f "$notes" ]; then
+            echo "missing release notes ${notes}" >&2
+            exit 1
+          fi
+          sha="$(git rev-parse --verify --end-of-options "refs/tags/${ref}^{commit}")"
+          head="$(git rev-parse --verify HEAD)"
+          if [ "$head" != "$sha" ]; then
+            echo "HEAD ${head} is not the peeled commit ${sha} of ${ref}" >&2
+            exit 1
+          fi
+          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "notes=${notes}" >> "$GITHUB_OUTPUT"
 
       - name: Reject dirty worktree
         run: git diff --exit-code && git diff --cached --exit-code
@@ -59,30 +117,13 @@ jobs:
       - name: Verify generated files
         run: make verify-generated
 
-      - name: Resolve notes path
-        id: gate
-        env:
-          REF: ${{ github.event.inputs.ref || github.ref_name }}
-        run: |
-          set -euo pipefail
-          ref="$REF"
-          ref="${ref#refs/tags/}"
-          if [[ ! "$ref" =~ ^v[0-9A-Za-z.+-]+$ ]]; then
-            echo "ref is not a release tag" >&2
-            exit 1
-          fi
-          notes="docs/releases/${ref}.md"
-          if [ ! -f "${notes}" ]; then
-            echo "missing release notes ${notes}" >&2
-            exit 1
-          fi
-          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
-          echo "notes=${notes}" >> "$GITHUB_OUTPUT"
-
       - name: Validate release notes headings
         env:
-          NOTES: ${{ steps.gate.outputs.notes }}
+          NOTES: ${{ steps.rev.outputs.notes }}
         run: go run ./scripts/release-gate -notes-only -notes "$NOTES"
+
+      - name: Build release-gate
+        run: go build -o "$RUNNER_TEMP/release-gate" ./scripts/release-gate
 
       - name: Require green CI on this commit
         env:
@@ -91,20 +132,27 @@ jobs:
           # GITHUB_REF_NAME; on workflow_dispatch those name the dispatching
           # branch and its head.
           # Pass the tag and the checked-out commit explicitly.
-          RELEASE_TAG: ${{ steps.gate.outputs.ref }}
+          RELEASE_TAG: ${{ steps.rev.outputs.ref }}
           RELEASE_SHA: ${{ steps.rev.outputs.sha }}
         run: |
+          set -euo pipefail
           for i in $(seq 1 70); do
-            if out=$(go run ./scripts/release-gate -require-ci -tag "$RELEASE_TAG" -sha "$RELEASE_SHA" 2>&1); then
-              echo "$out"
+            echo "release-gate: CI attempt ${i}/70" >&2
+            set +e
+            "$RUNNER_TEMP/release-gate" -require-ci -tag "$RELEASE_TAG" -sha "$RELEASE_SHA"
+            status=$?
+            set -e
+            if [ "$status" -eq 0 ]; then
               exit 0
             fi
-            echo "$out"
-            case "$out" in
-              *pending*|*"no matching run"*) sleep 30;;
-              *) exit 1;;
-            esac
+            # 75 is release-gate's retryable status. Do not match error text.
+            if [ "$status" -eq 75 ]; then
+              sleep 30
+              continue
+            fi
+            exit "$status"
           done
+          echo "CI run for this tag did not become green" >&2
           exit 1
 
   publish-image:
@@ -119,9 +167,62 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      - name: Canonicalize release ref
+        id: tag
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          ref="$RELEASE_REF"
+          # Trim ends only. Internal whitespace still fails the pattern.
+          ref="${ref#"${ref%%[![:space:]]*}"}"
+          ref="${ref%"${ref##*[![:space:]]}"}"
+          case "$ref" in
+            refs/tags/*) ref="${ref#refs/tags/}" ;;
+          esac
+          re='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          if [[ ! "$ref" =~ $re ]]; then
+            echo "ref is not a release tag" >&2
+            exit 1
+          fi
+          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.ref }}
+          fetch-depth: 0
+          ref: refs/tags/${{ steps.tag.outputs.ref }}
+
+      - name: Resolve peeled commit
+        id: rev
+        env:
+          RELEASE_REF: ${{ steps.tag.outputs.ref }}
+          GATED_SHA: ${{ needs.tag-gate.outputs.sha }}
+          GATED_REF: ${{ needs.tag-gate.outputs.ref }}
+        run: |
+          set -euo pipefail
+          ref="$RELEASE_REF"
+          # Trim ends only. Internal whitespace still fails the pattern.
+          ref="${ref#"${ref%%[![:space:]]*}"}"
+          ref="${ref%"${ref##*[![:space:]]}"}"
+          case "$ref" in
+            refs/tags/*) ref="${ref#refs/tags/}" ;;
+          esac
+          re='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          if [[ ! "$ref" =~ $re ]]; then
+            echo "ref is not a release tag" >&2
+            exit 1
+          fi
+          sha="$(git rev-parse --verify --end-of-options "refs/tags/${ref}^{commit}")"
+          head="$(git rev-parse --verify HEAD)"
+          if [ "$head" != "$sha" ]; then
+            echo "HEAD ${head} is not the peeled commit ${sha} of ${ref}" >&2
+            exit 1
+          fi
+          if [ -z "$GATED_SHA" ] || [ "$ref" != "$GATED_REF" ] || [ "$sha" != "$GATED_SHA" ]; then
+            echo "ref ${ref} commit ${sha} is not gated ref ${GATED_REF} commit ${GATED_SHA}" >&2
+            exit 1
+          fi
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
@@ -152,13 +253,13 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=${{ github.ref_name }}
-            COMMIT=${{ github.sha }}
+            VERSION=${{ steps.tag.outputs.ref }}
+            COMMIT=${{ steps.rev.outputs.sha }}
             BUILD_TIME=${{ github.event.head_commit.timestamp }}
 
       - name: Record digest
         env:
-          RELEASE_REF: ${{ github.ref_name }}
+          RELEASE_REF: ${{ steps.tag.outputs.ref }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           set -euo pipefail
