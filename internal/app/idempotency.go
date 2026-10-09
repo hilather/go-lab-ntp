@@ -4,162 +4,109 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"sync"
+
+	"github.com/hilather/go-lab-controlkit/idem"
 
 	"github.com/hilather/go-lab-ntp/internal/domainerr"
 	"github.com/hilather/go-lab-ntp/internal/model"
 )
 
+// idempEntry is the value stored for one key. Plan and apply share the key,
+// so a second store merges into the value already stored for that fingerprint.
 type idempEntry struct {
-	key   string
-	fp    string
 	plan  *Plan
 	apply *ApplyResult
-	prev  *idempEntry
-	next  *idempEntry
 }
 
 type idempCache struct {
-	mu      sync.Mutex
-	max     int
-	entries map[string]*idempEntry
-	head    *idempEntry
-	tail    *idempEntry
+	mu sync.Mutex
+	c  *idem.Cache[idempEntry]
 }
 
 func newIdempCache(max int) *idempCache {
 	if max <= 0 {
 		max = defaultIdempotencyMax
 	}
-	return &idempCache{
-		max:     max,
-		entries: map[string]*idempEntry{},
+	c, err := idem.New[idempEntry](max, idem.LRU)
+	if err != nil {
+		panic("idem.New: " + err.Error())
 	}
+	return &idempCache{c: c}
 }
 
 func (c *idempCache) lookup(key, fp string) (*idempEntry, error) {
-	if c == nil || key == "" {
+	if c == nil || c.c == nil || key == "" {
 		return nil, nil
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	e, ok := c.entries[key]
+	v, ok, err := c.c.Lookup(key, fp)
+	if err != nil {
+		if errors.Is(err, idem.ErrConflict) {
+			return nil, domainerr.IdempotencyConflict("idempotency key reused with a different request")
+		}
+		return nil, err
+	}
 	if !ok {
 		return nil, nil
 	}
-	if e.fp != fp {
-		return nil, domainerr.IdempotencyConflict("idempotency key reused with a different request")
-	}
-	c.moveFrontLocked(e)
-	return e, nil
+	cp := v
+	return &cp, nil
 }
 
 func (c *idempCache) storePlan(key, fp string, p *Plan) {
-	if c == nil || key == "" || p == nil {
+	if c == nil || c.c == nil || key == "" || p == nil {
 		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if e, ok := c.entries[key]; ok && e.fp == fp {
+	c.storeMerged(key, fp, func(e idempEntry) idempEntry {
 		e.plan = clonePlan(p)
-		c.moveFrontLocked(e)
-		return
-	}
-	c.insertFrontLocked(&idempEntry{key: key, fp: fp, plan: clonePlan(p)})
+		return e
+	})
 }
 
 func (c *idempCache) storeApply(key, fp string, r *ApplyResult) {
-	if c == nil || key == "" || r == nil {
+	if c == nil || c.c == nil || key == "" || r == nil {
 		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if e, ok := c.entries[key]; ok && e.fp == fp {
+	c.storeMerged(key, fp, func(e idempEntry) idempEntry {
 		e.apply = cloneApply(r)
-		c.moveFrontLocked(e)
-		return
+		return e
+	})
+}
+
+// storeMerged loads the value for key, applies set, and stores the result.
+// A miss or a different fingerprint starts from a zero entry, which drops
+// the previous plan or apply. The caller holds c.mu.
+func (c *idempCache) storeMerged(key, fp string, set func(idempEntry) idempEntry) {
+	cur, ok, err := c.c.Lookup(key, fp)
+	if err != nil || !ok {
+		cur = idempEntry{}
 	}
-	c.insertFrontLocked(&idempEntry{key: key, fp: fp, apply: cloneApply(r)})
+	c.c.Store(key, fp, set(cur))
 }
 
 func (c *idempCache) evict(key string) {
-	if c == nil || key == "" {
+	if c == nil || c.c == nil || key == "" {
 		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if e, ok := c.entries[key]; ok {
-		c.removeLocked(e)
-	}
+	c.c.Evict(key)
 }
 
 func (c *idempCache) clear() {
-	if c == nil {
+	if c == nil || c.c == nil {
 		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.entries = map[string]*idempEntry{}
-	c.head = nil
-	c.tail = nil
-}
-
-func (c *idempCache) insertFrontLocked(e *idempEntry) {
-	if old, ok := c.entries[e.key]; ok {
-		c.removeLocked(old)
-	}
-	c.entries[e.key] = e
-	e.prev = nil
-	e.next = c.head
-	if c.head != nil {
-		c.head.prev = e
-	}
-	c.head = e
-	if c.tail == nil {
-		c.tail = e
-	}
-	for len(c.entries) > c.max && c.tail != nil {
-		c.removeLocked(c.tail)
-	}
-}
-
-func (c *idempCache) moveFrontLocked(e *idempEntry) {
-	if e == nil || e == c.head {
-		return
-	}
-	c.unlinkLocked(e)
-	e.prev = nil
-	e.next = c.head
-	if c.head != nil {
-		c.head.prev = e
-	}
-	c.head = e
-	if c.tail == nil {
-		c.tail = e
-	}
-}
-
-func (c *idempCache) removeLocked(e *idempEntry) {
-	if e == nil {
-		return
-	}
-	delete(c.entries, e.key)
-	c.unlinkLocked(e)
-}
-
-func (c *idempCache) unlinkLocked(e *idempEntry) {
-	if e.prev != nil {
-		e.prev.next = e.next
-	} else {
-		c.head = e.next
-	}
-	if e.next != nil {
-		e.next.prev = e.prev
-	} else {
-		c.tail = e.prev
-	}
-	e.prev = nil
-	e.next = nil
+	c.c.Clear()
 }
 
 type changeFingerprint struct {

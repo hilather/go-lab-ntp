@@ -37,26 +37,3 @@ type RedactedEntry struct {
 	Before json.RawMessage `json:"before,omitempty"`
 	After  json.RawMessage `json:"after,omitempty"`
 }
-
-// RedactEvent copies ev with secret material stripped from reason/diff.
-func RedactEvent(ev Event) Event {
-	out := ev
-	out.Reason = redactText(out.Reason)
-	if len(out.Diff) > 0 {
-		diff := make([]RedactedEntry, len(out.Diff))
-		for i, d := range out.Diff {
-			before, after := redactJSON(d.Before), redactJSON(d.After)
-			if secretPath(d.Path) {
-				before, after = []byte(`"`+redacted+`"`), []byte(`"`+redacted+`"`)
-			}
-			diff[i] = RedactedEntry{
-				Path:   d.Path,
-				Op:     d.Op,
-				Before: before,
-				After:  after,
-			}
-		}
-		out.Diff = diff
-	}
-	return out
-}

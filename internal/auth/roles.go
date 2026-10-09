@@ -1,6 +1,10 @@
 package auth
 
-import "github.com/hilather/go-lab-ntp/internal/model"
+import (
+	"slices"
+
+	"github.com/hilather/go-lab-ntp/internal/model"
+)
 
 // DefaultScopes returns the frozen role → scope set. An explicit token
 // Scopes list wins over role expansion.
@@ -17,6 +21,14 @@ func DefaultScopes(role string) []string {
 	}
 }
 
+func sameScopes(a, b []string) bool {
+	aa := append([]string(nil), a...)
+	bb := append([]string(nil), b...)
+	slices.Sort(aa)
+	slices.Sort(bb)
+	return slices.Equal(aa, bb)
+}
+
 func allScopes() []string {
 	return []string{
 		model.ScopeNTPRead,
@@ -24,18 +36,4 @@ func allScopes() []string {
 		model.ScopeNTPAdmin,
 		model.ScopeNTPAuditRead,
 	}
-}
-
-func expandScopes(role string, scopes []string) (string, []string) {
-	out := append([]string(nil), scopes...)
-	if len(out) > 0 {
-		if role == "" {
-			role = model.RoleAdministrator
-		}
-		return role, out
-	}
-	if role == "" {
-		role = model.RoleAdministrator
-	}
-	return role, DefaultScopes(role)
 }

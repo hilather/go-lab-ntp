@@ -1,0 +1,447 @@
+package auth
+
+import (
+	"fmt"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/hilather/go-lab-controlkit/authn"
+	kitorigin "github.com/hilather/go-lab-controlkit/origin"
+	"github.com/hilather/go-lab-controlkit/scope"
+	kitsession "github.com/hilather/go-lab-controlkit/session"
+
+	"github.com/hilather/go-lab-ntp/internal/domainerr"
+	"github.com/hilather/go-lab-ntp/internal/model"
+)
+
+// MinTokenBytes is 256 bits of secret material.
+const MinTokenBytes = 32
+
+// TokenSource loads tokens. Tests wrap it to count secret-file opens.
+type TokenSource = authn.TokenSource
+
+// RawToken is one token before it is digested.
+type RawToken = authn.RawToken
+
+// FileResult is one candidate path a token source opened.
+type FileResult = authn.FileResult
+
+type kitStore = kitsession.Store
+type kitSession = kitsession.Session
+
+// Request is one authentication attempt. Adapters fill it from the HTTP
+// request; X-Forwarded-For is never consulted.
+type Request struct {
+	Authorization string
+	RemoteAddr    string
+}
+
+// Verifier is the process-local token index. There is no HTTP Basic.
+type Verifier struct {
+	mu sync.Mutex
+	k  *authn.Verifier
+	m  *authn.Material
+}
+
+// FromSpec compiles spec.auth. Missing secret files fail closed.
+func FromSpec(spec model.AuthSpec) (*Verifier, error) {
+	return FromSpecWith(spec, nil)
+}
+
+// FromSpecWith compiles spec.auth. wrap, when non-nil, sees the per-token
+// file source before it is loaded. Production passes nil.
+func FromSpecWith(spec model.AuthSpec, wrap func(TokenSource) TokenSource) (*Verifier, error) {
+	for i, tok := range spec.Tokens {
+		if tok.Role != strings.TrimSpace(tok.Role) {
+			return nil, domainerr.ValidationFailed("unknown role",
+				domainerr.FieldViolation{
+					Path:    fmt.Sprintf("spec.auth.tokens[%d].role", i),
+					Code:    "invalid_value",
+					Message: "role must be viewer, operator, or administrator",
+				})
+		}
+	}
+	mode, modeText := parseSpecMode(spec.Mode)
+	entries := make([]authn.FileToken, len(spec.Tokens))
+	for i, tok := range spec.Tokens {
+		entries[i] = authn.FileToken{
+			ID:         tok.ID,
+			Role:       tok.Role,
+			Scopes:     append([]string(nil), tok.Scopes...),
+			SecretFile: tok.SecretFile,
+		}
+	}
+	src := authn.PerTokenFiles(entries, fileOpts())
+	if wrap != nil {
+		src = wrap(src)
+	}
+	m, err := authn.Load(ntpAuthConfig(mode, modeText, src))
+	if err != nil {
+		return nil, mapLoadErr(err)
+	}
+	return newVerifier(m)
+}
+
+// Static builds a bearer verifier from an in-memory secret (contract tests).
+func Static(secret, id, role string) *Verifier {
+	if id == "" {
+		id = "admin"
+	}
+	m, err := authn.Load(ntpAuthConfig(authn.ModeBearer, model.MgmtAuthBearer, authn.Memory([]authn.RawToken{{
+		ID:     id,
+		Role:   role,
+		Secret: authn.NewSecret([]byte(secret)),
+	}})))
+	if err != nil {
+		panic("auth.Static: " + err.Error())
+	}
+	v, err := newVerifier(m)
+	if err != nil {
+		panic("auth.Static: " + err.Error())
+	}
+	return v
+}
+
+func newVerifier(m *authn.Material) (*Verifier, error) {
+	k, err := authn.NewVerifier(m)
+	if err != nil {
+		return nil, mapLoadErr(err)
+	}
+	return &Verifier{k: k, m: m}, nil
+}
+
+// OnIdentityChange registers a hook fired after Replace when identity changed.
+func (v *Verifier) OnIdentityChange(fn func()) {
+	if v == nil || v.k == nil || fn == nil {
+		return
+	}
+	v.k.OnIdentityChange(fn)
+}
+
+// Replace swaps the compiled index in place so REST and MCP share one pointer.
+func (v *Verifier) Replace(next *Verifier) {
+	if v == nil || next == nil || v.k == nil {
+		return
+	}
+	next.mu.Lock()
+	m := next.m
+	next.mu.Unlock()
+	if m == nil {
+		return
+	}
+	v.mu.Lock()
+	v.m = m
+	v.mu.Unlock()
+	v.k.Swap(m)
+}
+
+// Equivalent reports whether the compiled identity matches.
+func (v *Verifier) Equivalent(other *Verifier) bool {
+	if v == nil || other == nil {
+		return v == other
+	}
+	v.mu.Lock()
+	a := v.m
+	v.mu.Unlock()
+	other.mu.Lock()
+	b := other.m
+	other.mu.Unlock()
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equivalent(b)
+}
+
+// Mode is the compiled auth mode.
+func (v *Verifier) Mode() string {
+	if v == nil || v.k == nil {
+		return ""
+	}
+	return v.k.Mode().String()
+}
+
+// TokenCount is the number of compiled bearer principals.
+func (v *Verifier) TokenCount() int {
+	if v == nil || v.k == nil {
+		return 0
+	}
+	return v.k.TokenCount()
+}
+
+// RequireListen refuses a management bind that would be allow-all.
+func (v *Verifier) RequireListen() error {
+	if v == nil || v.k == nil {
+		return fmt.Errorf("management bind requires a verifier")
+	}
+	v.mu.Lock()
+	m := v.m
+	v.mu.Unlock()
+	if err := authn.BearerNeedsToken(true)(m); err != nil {
+		return fmt.Errorf("%s", err.Error())
+	}
+	return nil
+}
+
+// WWWAuthenticate is the 401 challenge list. There is no Basic.
+func WWWAuthenticate() []string {
+	return authn.Challenge("labntp", false)
+}
+
+// Authenticate verifies Authorization. A missing header is unauthenticated
+// unless mode is dev-loopback-unauth and RemoteAddr is loopback.
+func (v *Verifier) Authenticate(in Request) (Principal, error) {
+	if v == nil || v.k == nil {
+		return Principal{}, domainerr.Unauthenticated("authentication required")
+	}
+	p, err := v.k.Authenticate(authn.Request{
+		Authorization: in.Authorization,
+		RemoteAddr:    in.RemoteAddr,
+	})
+	if err != nil {
+		return Principal{}, mapUnauth(err)
+	}
+	return principalFromKit(p), nil
+}
+
+// AuthenticateBearer looks up a raw token secret (mcp-stdio --token-file).
+func (v *Verifier) AuthenticateBearer(secret string) (Principal, error) {
+	if v == nil || v.k == nil {
+		return Principal{}, domainerr.Unauthenticated("authentication required")
+	}
+	p, err := v.k.AuthenticateBearer([]byte(secret))
+	if err != nil {
+		return Principal{}, mapUnauth(err)
+	}
+	return principalFromKit(p), nil
+}
+
+// CheckOrigin implements the LabDNS wording: a present non-loopback Origin
+// is rejected unless it is on allowedOrigins. Missing Origin is allowed.
+// Only http/https Origins are accepted (file:// is denied even on loopback).
+func CheckOrigin(origin string, allowlist []string) error {
+	err := kitorigin.Check(origin, allowlist, kitorigin.Policy{
+		Match:              kitorigin.FoldTrimSlash,
+		HostParse:          kitorigin.URLParse,
+		LocalhostFold:      false,
+		ListUnionsLoopback: true,
+		ZonedLoopback:      false,
+		Sentinels:          nil,
+	})
+	if err != nil {
+		return domainerr.Forbidden("origin is not allowed")
+	}
+	return nil
+}
+
+// ReadTokenFile reads the raw bytes of a token file. Line selection stays
+// with the caller; a comment-only file is returned as raw bytes.
+func ReadTokenFile(path string) ([]byte, error) {
+	return authn.ReadFile(path, fileOpts())
+}
+
+// NewStore builds a session table. Non-positive durations use the defaults.
+func NewStore(cfg SessionConfig) *Sessions {
+	def := DefaultSessionConfig()
+	if cfg.Idle <= 0 {
+		cfg.Idle = def.Idle
+	}
+	if cfg.Absolute <= 0 {
+		cfg.Absolute = def.Absolute
+	}
+	if cfg.Max <= 0 {
+		cfg.Max = def.Max
+	}
+	k, err := kitsession.New(kitsession.Config{
+		CookieName:  CookieName,
+		CSRFHeader:  CSRFHeader,
+		Idle:        cfg.Idle,
+		Absolute:    cfg.Absolute,
+		Max:         cfg.Max,
+		AtCap:       kitsession.EvictOldest,
+		IDShape:     kitsession.SeparateCookieSecret,
+		CSRFCompare: kitsession.DigestConstantTime,
+	})
+	if err != nil {
+		panic("session.New: " + err.Error())
+	}
+	return &Sessions{k: k}
+}
+
+// SetClock overrides the clock (tests). Nil leaves the current clock in place.
+func (s *Sessions) SetClock(now func() time.Time) {
+	if s == nil || s.k == nil || now == nil {
+		return
+	}
+	s.k.SetNow(now)
+}
+
+// Create issues a new session and CSRF secret.
+func (s *Sessions) Create(p Principal) (cookieValue, csrf string, sess Session, err error) {
+	if s == nil || s.k == nil {
+		return "", "", Session{}, domainerr.Internal("session store unavailable")
+	}
+	issued, err := s.k.Create(scope.Principal{
+		ID:     p.ID,
+		Class:  ClassToken,
+		Role:   p.Role,
+		Scopes: append([]string(nil), p.Scopes...),
+	})
+	if err != nil {
+		return "", "", Session{}, mapSessionMint(err)
+	}
+	return issued.Cookie, issued.CSRF, sessionFromKit(issued.Session), nil
+}
+
+// Lookup returns the session for cookieValue and touches LastSeen.
+func (s *Sessions) Lookup(cookieValue string) (Session, string, bool) {
+	if s == nil || s.k == nil || cookieValue == "" {
+		return Session{}, "", false
+	}
+	ks, ok := s.k.Lookup(cookieValue)
+	if !ok {
+		return Session{}, "", false
+	}
+	csrf, ok := s.k.CSRF(cookieValue)
+	if !ok {
+		return Session{}, "", false
+	}
+	return sessionFromKit(ks), csrf, true
+}
+
+// Delete removes one cookie session.
+func (s *Sessions) Delete(cookieValue string) {
+	if s == nil || s.k == nil || cookieValue == "" {
+		return
+	}
+	s.k.Delete(cookieValue)
+}
+
+// Clear drops every session (reset / token reload when identity changes).
+func (s *Sessions) Clear() {
+	if s == nil || s.k == nil {
+		return
+	}
+	s.k.Clear()
+}
+
+// ValidCSRF compares the presented header to the session CSRF secret.
+func (s *Sessions) ValidCSRF(cookieValue, presented string) bool {
+	if s == nil || s.k == nil || cookieValue == "" || presented == "" {
+		return false
+	}
+	return s.k.ValidCSRF(cookieValue, presented)
+}
+
+// MaxAge is the cookie Max-Age (absolute TTL).
+func (s *Sessions) MaxAge() int {
+	if s == nil || s.k == nil {
+		return int(DefaultSessionConfig().Absolute.Seconds())
+	}
+	return s.k.MaxAge()
+}
+
+// ExpiresAt is the earlier of idle and absolute expiry.
+func (s *Sessions) ExpiresAt(sess Session) time.Time {
+	if s == nil || s.k == nil {
+		return time.Time{}
+	}
+	return s.k.ExpiresAt(sess.kit)
+}
+
+// NewSessionCookie builds the browser cookie. Secure iff management TLS.
+func NewSessionCookie(value string, secure bool, maxAge int) *http.Cookie {
+	return kitsession.SessionCookie(CookieName, value, secure, maxAge)
+}
+
+// ClearSessionCookie expires the UI cookie.
+func ClearSessionCookie(secure bool) *http.Cookie {
+	return kitsession.ClearCookie(CookieName, secure)
+}
+
+// CookieSecure is true when the request is TLS or the server requires Secure.
+func CookieSecure(r *http.Request, force bool) bool {
+	return kitsession.CookieSecure(r, force)
+}
+
+func sessionFromKit(ks kitSession) Session {
+	return Session{
+		ID:        ks.ID,
+		TokenID:   ks.Principal.ID,
+		Role:      ks.Principal.Role,
+		Scopes:    append([]string(nil), ks.Principal.Scopes...),
+		CreatedAt: ks.CreatedAt,
+		LastSeen:  ks.LastSeen,
+		kit:       ks,
+	}
+}
+
+func principalFromKit(p scope.Principal) Principal {
+	return Principal{
+		ID:     p.ID,
+		Class:  p.Class,
+		Role:   p.Role,
+		Scopes: append([]string(nil), p.Scopes...),
+	}
+}
+
+func parseSpecMode(specMode string) (authn.Mode, string) {
+	text := strings.TrimSpace(specMode)
+	switch text {
+	case "", model.MgmtAuthBearer:
+		if text == "" {
+			text = model.MgmtAuthBearer
+		}
+		return authn.ModeBearer, text
+	case model.MgmtAuthDevLoopbackUnauth:
+		return authn.ModeDevLoopbackUnauth, text
+	default:
+		return authn.ModeUnknown, text
+	}
+}
+
+func ntpAuthConfig(mode authn.Mode, modeText string, src TokenSource) authn.Config {
+	return authn.Config{
+		Mode:                mode,
+		ModeText:            modeText,
+		Source:              src,
+		Duplicates:          authn.RejectDuplicateValue,
+		MinSecretBytes:      MinTokenBytes,
+		WarnBelowBytes:      0,
+		Accept:              nil,
+		PathPrefix:          "spec.auth",
+		Roles:               ntpScopeTable(),
+		RejectEmptyRole:     false,
+		RejectBlankTokens:   false,
+		LocalhostIsLoopback: true,
+		ManagementBound:     false,
+		Basic:               nil,
+		DNSDefaults:         nil,
+	}
+}
+
+func ntpScopeTable() scope.Table {
+	return scope.Table{
+		Roles: map[string][]string{
+			model.RoleViewer:        {model.ScopeNTPRead},
+			model.RoleOperator:      {model.ScopeNTPRead, model.ScopeNTPWrite},
+			model.RoleAdministrator: allScopes(),
+		},
+		EmptyRole:                model.RoleAdministrator,
+		ExplicitReplacesRole:     true,
+		AllowUnknownRoleExplicit: false,
+		WildcardScope:            model.ScopeNTPAdmin,
+	}
+}
+
+func fileOpts() authn.FileOpts {
+	return authn.FileOpts{
+		Line:        authn.FirstNonCommentLine,
+		Resolve:     authn.AsGiven,
+		BaseDir:     "",
+		SkipMissing: false,
+		Harden:      false,
+		TrimRef:     false,
+	}
+}

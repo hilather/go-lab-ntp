@@ -6,6 +6,7 @@ toolchain go1.26.8
 
 require (
 	github.com/google/jsonschema-go v0.4.3
+	github.com/hilather/go-lab-controlkit v0.0.0-20261009033931-7fbaa6fee48a
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	gopkg.in/yaml.v3 v3.0.1
 )

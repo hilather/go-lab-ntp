@@ -59,7 +59,7 @@ type Config struct {
 	Metrics           *observability.Registry
 	Logger            *observability.Logger
 	Auth              *auth.Verifier
-	Sessions          *auth.Store
+	Sessions          *auth.Sessions
 	CookieSecure      bool
 	UI                http.Handler
 	UIEnabled         func() bool

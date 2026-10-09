@@ -1,2 +1,2 @@
-// Package auth is lab static bearer (SHA-256 digest compare) plus SPA cookie+CSRF.
+// Package auth is lab static bearer plus SPA cookie and CSRF.
 package auth

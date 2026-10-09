@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/hilather/go-lab-ntp/internal/app"
@@ -53,7 +52,7 @@ func mcpStdioCmd(ctx context.Context, args []string, stdout, stderr io.Writer) i
 			return 1
 		}
 		verifier = v
-		raw, rErr := os.ReadFile(*tokenFile)
+		raw, rErr := auth.ReadTokenFile(*tokenFile)
 		if rErr != nil {
 			_, _ = fmt.Fprintf(stderr, "labntp mcp-stdio: token-file: %v\n", rErr)
 			return 1

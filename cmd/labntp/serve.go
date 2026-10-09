@@ -55,6 +55,10 @@ func parseServeFlags(args []string, stderr io.Writer) (serveFlags, error) {
 	}, nil
 }
 
+// wrapTokenSource is nil in production. Tests set it to count secret-file
+// opens on the real serve path. It does not change auth options.
+var wrapTokenSource func(auth.TokenSource) auth.TokenSource
+
 func managementOff(s string) bool {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "", "off", "none", "-":
@@ -130,7 +134,7 @@ func serveCmd(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	})
 
 	if !mgmtOff {
-		v, vErr := auth.FromSpec(snap.Canonical.Spec.Auth)
+		v, vErr := auth.FromSpecWith(snap.Canonical.Spec.Auth, wrapTokenSource)
 		if vErr != nil {
 			_, _ = fmt.Fprintf(stderr, "labntp serve: auth: %v\n", vErr)
 			_ = ntp.Shutdown(context.Background())

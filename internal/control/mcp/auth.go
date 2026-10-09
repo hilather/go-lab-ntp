@@ -4,8 +4,9 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/hilather/go-lab-controlkit/ratelimit"
 
 	"github.com/hilather/go-lab-ntp/internal/app"
 	"github.com/hilather/go-lab-ntp/internal/auth"
@@ -65,97 +66,41 @@ func (s *Server) authorizeTool(actor app.Actor, name string) error {
 }
 
 type limiter struct {
-	disabled bool
-	rate     float64
-	burst    float64
-	mu       sync.Mutex
-	buckets  map[string]*bucket
-}
-
-type bucket struct {
-	tokens float64
-	last   time.Time
+	keyed *ratelimit.Keyed
 }
 
 // maxManagementBuckets matches ntpserver.DefaultMaxInflight and the regression ceiling.
 const maxManagementBuckets = 1024
 
 func newLimiter(rate, burst float64) *limiter {
-	if rate < 0 {
-		return &limiter{disabled: true}
+	keyed, err := ratelimit.NewKeyed(rate, burst, ratelimit.Ctor{
+		DefaultRate:  float64(config.DefaultRequestsPerSecond),
+		DefaultBurst: float64(config.DefaultBurst),
+		NegativeRate: ratelimit.NegativeRateDisabled,
+		ZeroRate:     ratelimit.ZeroRateUseDefault,
+		Burst:        ratelimit.BurstDefaultOnZero,
+	}, ratelimit.Options{
+		IdleFloor:        30 * time.Second,
+		IdleRefillFactor: 4,
+		MaxKeys:          maxManagementBuckets,
+		Now:              nil,
+	})
+	if err != nil {
+		panic("ratelimit.NewKeyed: " + err.Error())
 	}
-	if rate == 0 {
-		rate = float64(config.DefaultRequestsPerSecond)
-	}
-	if burst == 0 {
-		burst = float64(config.DefaultBurst)
-	}
-	return &limiter{rate: rate, burst: burst, buckets: map[string]*bucket{}}
+	return &limiter{keyed: keyed}
 }
 
 func (l *limiter) allow(remote string) error {
-	if l == nil || l.disabled {
+	if l == nil || l.keyed == nil {
 		return nil
 	}
 	key := remote
 	if host, _, err := net.SplitHostPort(remote); err == nil {
 		key = host
 	}
-	now := time.Now()
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.evictIdleLocked(now)
-	b := l.buckets[key]
-	if b == nil {
-		if len(l.buckets) >= maxManagementBuckets {
-			l.evictOldestLocked()
-		}
-		b = &bucket{tokens: l.burst, last: now}
-		l.buckets[key] = b
+	if l.keyed.Allow(key) {
+		return nil
 	}
-	elapsed := now.Sub(b.last).Seconds()
-	b.tokens += elapsed * l.rate
-	if b.tokens > l.burst {
-		b.tokens = l.burst
-	}
-	b.last = now
-	if b.tokens < 1 {
-		return domainerr.RateLimited("too many management requests")
-	}
-	b.tokens--
-	return nil
-}
-
-func (l *limiter) evictIdleLocked(now time.Time) {
-	if l == nil || len(l.buckets) == 0 {
-		return
-	}
-	idleFor := 30 * time.Second
-	if l.rate > 0 {
-		refill := time.Duration(float64(time.Second) * (l.burst / l.rate) * 4)
-		if refill > idleFor {
-			idleFor = refill
-		}
-	}
-	for k, b := range l.buckets {
-		if now.Sub(b.last) > idleFor {
-			delete(l.buckets, k)
-		}
-	}
-}
-
-func (l *limiter) evictOldestLocked() {
-	var oldestKey string
-	var oldest time.Time
-	found := false
-	for k, b := range l.buckets {
-		if !found || b.last.Before(oldest) {
-			found = true
-			oldest = b.last
-			oldestKey = k
-		}
-	}
-	if found {
-		delete(l.buckets, oldestKey)
-	}
+	return domainerr.RateLimited("too many management requests")
 }
