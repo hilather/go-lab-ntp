@@ -1,7 +1,8 @@
 # LabNTP tag gate + GHCR publish.
 #
 # tag-gate runs on v* tag push and workflow_dispatch (re-gate only).
-# publish-image runs only on push of tags v* (never dispatch).
+# publish-image runs only on push of tags v* (never dispatch) and builds
+# only the commit tag-gate approved.
 #
 # The tag must match ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$.
 # The tag is validated before checkout. Checkout is only refs/tags/<tag>.
@@ -44,6 +45,9 @@ jobs:
     name: tag-gate
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      sha: ${{ steps.rev.outputs.sha }}
+      ref: ${{ steps.rev.outputs.ref }}
     steps:
       - name: Canonicalize release ref
         id: tag
@@ -192,6 +196,8 @@ jobs:
         id: rev
         env:
           RELEASE_REF: ${{ steps.tag.outputs.ref }}
+          GATED_SHA: ${{ needs.tag-gate.outputs.sha }}
+          GATED_REF: ${{ needs.tag-gate.outputs.ref }}
         run: |
           set -euo pipefail
           ref="$RELEASE_REF"
@@ -210,6 +216,10 @@ jobs:
           head="$(git rev-parse --verify HEAD)"
           if [ "$head" != "$sha" ]; then
             echo "HEAD ${head} is not the peeled commit ${sha} of ${ref}" >&2
+            exit 1
+          fi
+          if [ -z "$GATED_SHA" ] || [ "$ref" != "$GATED_REF" ] || [ "$sha" != "$GATED_SHA" ]; then
+            echo "ref ${ref} commit ${sha} is not gated ref ${GATED_REF} commit ${GATED_SHA}" >&2
             exit 1
           fi
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"

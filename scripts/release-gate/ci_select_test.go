@@ -430,6 +430,9 @@ func TestWorkflowContract(t *testing.T) {
 	if got := strings.Count(rel, "re='"+releaseTagPatternSrc+"'"); got != 4 {
 		t.Errorf("shell tag pattern count = %d, want 4", got)
 	}
+	if got := strings.Count(rel, `refs/tags/*) ref="${ref#refs/tags/}" ;;`); got != 4 {
+		t.Errorf("tag prefix strip count = %d, want 4", got)
+	}
 	if strings.Contains(rel, `^v[0-9A-Za-z.+-]+$`) {
 		t.Error("release.yml still uses the old tag pattern")
 	}
@@ -465,18 +468,33 @@ func TestWorkflowContract(t *testing.T) {
 	if tagStart < 0 || pubStart < 0 || tagStart >= pubStart {
 		t.Fatalf("job keys tag=%d publish=%d", tagStart, pubStart)
 	}
+	headMismatch := "if [ \"$head\" != \"$sha\" ]; then\n" +
+		"            echo \"HEAD ${head} is not the peeled commit ${sha} of ${ref}\" >&2\n" +
+		"            exit 1\n" +
+		"          fi"
+	gatedMismatch := "if [ -z \"$GATED_SHA\" ] || [ \"$ref\" != \"$GATED_REF\" ] || [ \"$sha\" != \"$GATED_SHA\" ]; then\n" +
+		"            echo \"ref ${ref} commit ${sha} is not gated ref ${GATED_REF} commit ${GATED_SHA}\" >&2\n" +
+		"            exit 1\n" +
+		"          fi"
+	tagGateOutputs := "outputs:\n" +
+		"      sha: ${{ steps.rev.outputs.sha }}\n" +
+		"      ref: ${{ steps.rev.outputs.ref }}"
 	requireOrder(t, "tag-gate", rel[tagStart:pubStart],
+		tagGateOutputs,
 		"\n      - name: Canonicalize release ref\n",
 		"\n      - uses: actions/checkout@",
 		"refs/tags/${ref}^{commit}",
-		`[ "$head" != "$sha" ]`,
+		headMismatch,
 	)
 	requireOrder(t, "publish-image", rel[pubStart:],
 		"\n      - name: Canonicalize release ref\n",
 		"\n      - uses: actions/checkout@",
 		"ref: refs/tags/${{ steps.tag.outputs.ref }}",
+		"GATED_SHA: ${{ needs.tag-gate.outputs.sha }}",
+		"GATED_REF: ${{ needs.tag-gate.outputs.ref }}",
 		"refs/tags/${ref}^{commit}",
-		`[ "$head" != "$sha" ]`,
+		headMismatch,
+		gatedMismatch,
 		"VERSION=${{ steps.tag.outputs.ref }}",
 		"COMMIT=${{ steps.rev.outputs.sha }}",
 		"RELEASE_REF: ${{ steps.tag.outputs.ref }}",
@@ -630,7 +648,7 @@ func TestExitCodes(t *testing.T) {
 		installGHListFails(t)
 		dispatchEnv(t)
 		code, msg := runRequireCI(t, "v1.0.0-pending", tagSHA)
-		if code != 1 || strings.HasPrefix(msg, "release-gate: pending ") || strings.HasPrefix(msg, "release-gate: no matching run ") {
+		if code != 1 || strings.HasPrefix(msg, "release-gate: pending") || strings.HasPrefix(msg, "release-gate: no matching run") {
 			t.Fatalf("code %d\n%s", code, msg)
 		}
 	})

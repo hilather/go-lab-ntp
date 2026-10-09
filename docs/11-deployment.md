@@ -42,7 +42,7 @@ Tag-triggered workflow [`.github/workflows/release.yml`](../.github/workflows/re
   `-sha`. The gate exits 75 while the tag's own push run is missing or not
   completed, and the workflow retries only status 75. The ref is not
   interpolated into `run:`. `publish-image` checks out the same canonical
-  tag and runs only on a tag push.
+  tag, runs only on a tag push, and builds only the commit tag-gate approved.
 
 First push may create a private package. A human may need to mark
 `ghcr.io/hilather/labntp` public in the org UI so the integrator can pull
