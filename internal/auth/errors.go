@@ -12,14 +12,16 @@ import (
 
 // mapLoadErr renders ntp validation text from a kit load failure.
 // Kit Msg is not copied: the wire sentences are the ones FromSpec used
-// before the facade.
+// before the facade. An unrecognized *authn.LoadError is a generic
+// validation failure and does not claim the secret file is missing.
+// Any other error is a neutral ntp sentence, not the kit's "authn:" text.
 func mapLoadErr(err error) error {
 	if err == nil {
 		return nil
 	}
 	var le *authn.LoadError
 	if !errors.As(err, &le) || le == nil {
-		return domainerr.ValidationFailed(err.Error())
+		return domainerr.ValidationFailed("token configuration is invalid")
 	}
 	field := le.Field
 	leaf := field
@@ -53,8 +55,7 @@ func mapLoadErr(err error) error {
 		return domainerr.ValidationFailed("token secret is unavailable",
 			viol(field, "unresolved_reference", "token secret file does not resolve"))
 	default:
-		return domainerr.ValidationFailed("token secret is unavailable",
-			viol(field, le.Code, "token secret file does not resolve"))
+		return domainerr.ValidationFailed("validation failed")
 	}
 }
 

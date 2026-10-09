@@ -12,6 +12,7 @@ import (
 	"github.com/hilather/go-lab-ntp/internal/app"
 	"github.com/hilather/go-lab-ntp/internal/auth"
 	"github.com/hilather/go-lab-ntp/internal/domainerr"
+	"github.com/hilather/go-lab-ntp/internal/querylog"
 )
 
 func TestKittestResetZeroTokens(t *testing.T) {
@@ -19,6 +20,9 @@ func TestKittestResetZeroTokens(t *testing.T) {
 }
 
 func TestKittestResetUnreadableSecret(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("uid 0 can read a mode 000 token file")
+	}
 	kittest.ResetUnreadableSecret(t, newUnreadableDriver(t))
 }
 
@@ -79,6 +83,12 @@ type unreadableDriver struct {
 func newUnreadableDriver(t *testing.T) *unreadableDriver {
 	t.Helper()
 	svc, s, verifier, cookie, boot := bootReload(t)
+	// A refused reset must not clear the query log. Seeding makes that
+	// observable: SideEffects is nonzero before the reset and stays equal.
+	q := svc.QueryLog()
+	if q == nil || !q.TryInsert(querylog.Entry{Filter: "seed"}) || len(q.List()) == 0 {
+		t.Fatal("query log seed failed")
+	}
 	return &unreadableDriver{
 		t: t, svc: svc, s: s, verifier: verifier, cookie: cookie, dir: filepath.Dir(boot),
 	}

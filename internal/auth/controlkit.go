@@ -52,39 +52,76 @@ func FromSpec(spec model.AuthSpec) (*Verifier, error) {
 
 // FromSpecWith compiles spec.auth. wrap, when non-nil, sees the per-token
 // file source before it is loaded. Production passes nil.
+//
+// Checks follow the pre-facade FromSpec order and stop at the first failure:
+// unknown mode, then each token's empty id, duplicate id, secret read,
+// length, duplicate digest, and unknown role. A later secret file is not
+// opened after that return. A role that differs from its trimmed form is
+// rejected before that token's file is opened and before Load, which trims
+// the role and would accept it (plan NB6).
+//
+// Each secret is read once, through wrap. Load then compiles those bytes
+// from memory so a second pass does not open the files again.
 func FromSpecWith(spec model.AuthSpec, wrap func(TokenSource) TokenSource) (*Verifier, error) {
-	for i, tok := range spec.Tokens {
-		if tok.Role != strings.TrimSpace(tok.Role) {
-			return nil, domainerr.ValidationFailed("unknown role",
-				domainerr.FieldViolation{
-					Path:    fmt.Sprintf("spec.auth.tokens[%d].role", i),
-					Code:    "invalid_value",
-					Message: "role must be viewer, operator, or administrator",
-				})
-		}
-	}
 	mode, modeText := parseSpecMode(spec.Mode)
-	entries := make([]authn.FileToken, len(spec.Tokens))
-	for i, tok := range spec.Tokens {
-		entries[i] = authn.FileToken{
-			ID:         tok.ID,
-			Role:       tok.Role,
-			Scopes:     append([]string(nil), tok.Scopes...),
-			SecretFile: tok.SecretFile,
-		}
+	if mode == authn.ModeUnknown {
+		return nil, invalidSpec("unknown auth mode", "spec.auth.mode", "invalid_value", "unknown auth mode")
 	}
-	src := authn.PerTokenFiles(entries, fileOpts())
+
+	src := tokenFiles(spec)
 	if wrap != nil {
 		src = wrap(src)
 	}
-	m, err := authn.Load(ntpAuthConfig(mode, modeText, src))
-	if err != nil {
-		return nil, mapLoadErr(err)
+	hold := &rawHold{}
+	defer hold.wipe()
+
+	seen := make(map[string]struct{}, len(spec.Tokens))
+	var compiled *authn.Material
+	for i, tok := range spec.Tokens {
+		id := strings.TrimSpace(tok.ID)
+		if id == "" {
+			return nil, invalidSpec("token id is required", tokenPath(i, "id"), "empty_id", "token id is required")
+		}
+		if _, dup := seen[id]; dup {
+			return nil, invalidSpec("duplicate token id", tokenPath(i, "id"), "duplicate_id", "duplicate token id")
+		}
+		// NB6. Load trims the role before Expand, so a padded role would
+		// compile. Reject it before this token's file is opened.
+		if tok.Role != strings.TrimSpace(tok.Role) {
+			return nil, invalidSpec("unknown role", tokenPath(i, "role"), "invalid_value", "role must be viewer, operator, or administrator")
+		}
+		got, _, err := src.Read()
+		if err != nil || len(got) != 1 {
+			wipeRaw(got)
+			return nil, invalidSpec("token secret is unavailable", tokenPath(i, "secretFile"), "unresolved_reference", "token secret file does not resolve")
+		}
+		hold.tokens = append(hold.tokens, got[0])
+		seen[id] = struct{}{}
+		// Length, duplicate digest, and unknown role run here, on the tokens
+		// read so far, before the next file is opened.
+		m, lerr := authn.Load(ntpAuthConfig(mode, modeText, authn.Memory(hold.tokens)))
+		if lerr != nil {
+			return nil, mapLoadErr(lerr)
+		}
+		compiled = m
 	}
-	return newVerifier(m)
+	if compiled == nil {
+		if _, _, err := src.Read(); err != nil {
+			return nil, mapLoadErr(err)
+		}
+		m, err := authn.Load(ntpAuthConfig(mode, modeText, authn.Memory(nil)))
+		if err != nil {
+			return nil, mapLoadErr(err)
+		}
+		compiled = m
+	}
+	return newVerifier(compiled)
 }
 
-// Static builds a bearer verifier from an in-memory secret (contract tests).
+// Static builds a bearer verifier from an in-memory secret.
+// It is a test-only helper. secret must be at least MinTokenBytes (32).
+// role must be empty or a known role (viewer, operator, or administrator);
+// a shorter secret or any other role panics.
 func Static(secret, id, role string) *Verifier {
 	if id == "" {
 		id = "admin"
@@ -444,4 +481,70 @@ func fileOpts() authn.FileOpts {
 		Harden:      false,
 		TrimRef:     false,
 	}
+}
+
+// tokenFileSource opens one secret file per Read, in spec order.
+// Stopping after a failed Read leaves every later file untouched.
+type tokenFileSource struct {
+	entries []authn.FileToken
+	opts    authn.FileOpts
+	next    int
+}
+
+func tokenFiles(spec model.AuthSpec) TokenSource {
+	entries := make([]authn.FileToken, len(spec.Tokens))
+	for i, tok := range spec.Tokens {
+		entries[i] = authn.FileToken{
+			ID:         tok.ID,
+			Role:       tok.Role,
+			Scopes:     append([]string(nil), tok.Scopes...),
+			SecretFile: tok.SecretFile,
+		}
+	}
+	return &tokenFileSource{entries: entries, opts: fileOpts()}
+}
+
+func (s *tokenFileSource) Read() ([]authn.RawToken, []authn.FileResult, error) {
+	if s == nil || s.next >= len(s.entries) {
+		return nil, nil, nil
+	}
+	ent := s.entries[s.next]
+	s.next++
+	return authn.PerTokenFiles([]authn.FileToken{ent}, s.opts).Read()
+}
+
+func (s *tokenFileSource) Spec() any {
+	if s == nil {
+		return nil
+	}
+	return authn.PerTokenFiles(s.entries, s.opts).Spec()
+}
+
+type rawHold struct {
+	tokens []authn.RawToken
+}
+
+func (h *rawHold) wipe() {
+	if h == nil {
+		return
+	}
+	wipeRaw(h.tokens)
+}
+
+func wipeRaw(tokens []authn.RawToken) {
+	for i := range tokens {
+		tokens[i].Secret.Zero()
+	}
+}
+
+func invalidSpec(top, path, code, message string) error {
+	return domainerr.ValidationFailed(top, domainerr.FieldViolation{
+		Path:    path,
+		Code:    code,
+		Message: message,
+	})
+}
+
+func tokenPath(i int, leaf string) string {
+	return fmt.Sprintf("spec.auth.tokens[%d].%s", i, leaf)
 }
