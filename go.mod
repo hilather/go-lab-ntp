@@ -2,7 +2,7 @@ module github.com/hilather/go-lab-ntp
 
 go 1.26
 
-toolchain go1.26.8
+toolchain go1.26.9
 
 require (
 	github.com/google/jsonschema-go v0.4.3
