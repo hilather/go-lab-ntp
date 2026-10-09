@@ -46,7 +46,7 @@ exit 0
 	if err == nil {
 		t.Fatal("gate accepted the older successful push run and ignored the failed tag run for the same SHA")
 	}
-	if strings.Contains(err.Error(), "pending") || strings.Contains(err.Error(), "no matching run") {
+	if retryable(err) || strings.Contains(err.Error(), "pending") || strings.Contains(err.Error(), "no matching run") {
 		t.Fatalf("error %v", err)
 	}
 }
@@ -65,7 +65,7 @@ func TestRequireCIRejectsMainPushSameSHA(t *testing.T) {
 	installFakeGH(t, list, "cat <<'EOF'\n"+greenJobsJSON+"\nEOF\nexit 0\n")
 	setTagEnv(t)
 	err := requireGreenCI("", "")
-	if err == nil || !strings.Contains(err.Error(), "no matching run") {
+	if err == nil || !strings.Contains(err.Error(), "no matching run") || !retryable(err) {
 		t.Fatalf("err=%v", err)
 	}
 }
@@ -75,7 +75,7 @@ func TestRequireCIRejectsPullRequestFallback(t *testing.T) {
 	installFakeGH(t, list, "cat <<'EOF'\n"+greenJobsJSON+"\nEOF\nexit 0\n")
 	setTagEnv(t)
 	err := requireGreenCI("", "")
-	if err == nil || !strings.Contains(err.Error(), "no matching run") {
+	if err == nil || !strings.Contains(err.Error(), "no matching run") || !retryable(err) {
 		t.Fatalf("err=%v", err)
 	}
 }
@@ -85,7 +85,7 @@ func TestRequireCIPendingTagRun(t *testing.T) {
 	installFakeGH(t, list, "cat <<'EOF'\n"+greenJobsJSON+"\nEOF\nexit 0\n")
 	setTagEnv(t)
 	err := requireGreenCI("", "")
-	if err == nil || !strings.Contains(err.Error(), "pending") {
+	if err == nil || !strings.Contains(err.Error(), "pending") || !retryable(err) {
 		t.Fatalf("err=%v", err)
 	}
 }
@@ -124,8 +124,8 @@ func TestResolveTag(t *testing.T) {
 				}
 				return
 			}
-			if err == nil {
-				t.Fatalf("got %q, want error", got)
+			if err == nil || retryable(err) {
+				t.Fatalf("got %q err %v", got, err)
 			}
 		})
 	}
@@ -301,7 +301,7 @@ func TestRequireCIDispatchEnvWithoutFlagsFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("dispatch env without -tag/-sha was accepted")
 	}
-	if strings.Contains(err.Error(), "pending") || strings.Contains(err.Error(), "no matching run") {
+	if retryable(err) || strings.Contains(err.Error(), "pending") || strings.Contains(err.Error(), "no matching run") {
 		t.Fatalf("branch ref looks retryable: %v", err)
 	}
 }
@@ -310,7 +310,7 @@ func TestRequireCIExplicitFlagsIgnoreMainRun(t *testing.T) {
 	installFakeGH(t, `[{"databaseId":5,"conclusion":"success","status":"completed","headSha":"`+branchSHA+`","event":"push","headBranch":"main"}]`, "cat <<'EOF'\n"+greenJobsJSON+"\nEOF\nexit 0\n")
 	dispatchEnv(t)
 	err := requireGreenCI("v1.2.3", tagSHA)
-	if err == nil || !strings.Contains(err.Error(), "no matching run") {
+	if err == nil || !strings.Contains(err.Error(), "no matching run") || !retryable(err) {
 		t.Fatalf("err=%v", err)
 	}
 	if args := ghArgs(t); !strings.Contains(args, "--commit="+tagSHA) {
@@ -377,7 +377,7 @@ func TestRequireCIExplicitFlagsRejectBadValues(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("err=%v", err)
 			}
-			if strings.Contains(err.Error(), "pending") || strings.Contains(err.Error(), "no matching run") {
+			if retryable(err) || strings.Contains(err.Error(), "pending") || strings.Contains(err.Error(), "no matching run") {
 				t.Fatalf("bad flag looks retryable: %v", err)
 			}
 		})
@@ -401,8 +401,8 @@ func TestRunUsage(t *testing.T) {
 }
 
 // GitHub ignores step env that sets GITHUB_*, so the re-gate must pass the
-// tag and commit to release-gate explicitly.
-func TestReleaseWorkflowPassesTagAndSHA(t *testing.T) {
+// tag and peeled commit to release-gate explicitly.
+func TestWorkflowContract(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "release.yml"))
 	if err != nil {
 		t.Fatal(err)
@@ -414,31 +414,272 @@ func TestReleaseWorkflowPassesTagAndSHA(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"RELEASE_TAG: ${{ steps.gate.outputs.ref }}",
+		"RELEASE_TAG: ${{ steps.rev.outputs.ref }}",
 		"RELEASE_SHA: ${{ steps.rev.outputs.sha }}",
-		`go run ./scripts/release-gate -require-ci -tag "$RELEASE_TAG" -sha "$RELEASE_SHA"`,
+		`"$RUNNER_TEMP/release-gate" -require-ci -tag "$RELEASE_TAG" -sha "$RELEASE_SHA"`,
+		`go build -o "$RUNNER_TEMP/release-gate"`,
+		"refs/tags/${ref}^{commit}",
 	} {
 		if !strings.Contains(rel, want) {
 			t.Errorf("release.yml missing %q", want)
 		}
 	}
+	if strings.Contains(rel, "steps.gate.outputs") {
+		t.Error("release.yml still uses steps.gate.outputs")
+	}
+	if got := strings.Count(rel, "re='"+releaseTagPatternSrc+"'"); got != 4 {
+		t.Errorf("shell tag pattern count = %d, want 4", got)
+	}
+	if strings.Contains(rel, `^v[0-9A-Za-z.+-]+$`) {
+		t.Error("release.yml still uses the old tag pattern")
+	}
+	if got := strings.Count(rel, "ref: refs/tags/${{ steps.tag.outputs.ref }}"); got != 2 {
+		t.Errorf("canonical checkout ref count = %d, want 2", got)
+	}
+	for _, bad := range []string{
+		"ref: ${{ github.event.inputs.ref || github.ref }}",
+		"ref: ${{ github.ref }}",
+		"github.ref_name",
+		"*pending*",
+		`*"no matching run"*`,
+		`case "$out"`,
+		"COMMIT=${{ github.sha }}",
+	} {
+		if strings.Contains(rel, bad) {
+			t.Errorf("release.yml contains %q", bad)
+		}
+	}
+	wantStatus := fmt.Sprintf(`[ "$status" -eq %d ]`, exitRetryable)
+	if !strings.Contains(rel, wantStatus) {
+		t.Errorf("release.yml missing %s", wantStatus)
+	}
+	if !strings.Contains(rel, "github.event_name == 'push'") || !strings.Contains(rel, "startsWith(github.ref, 'refs/tags/v')") {
+		t.Error("publish-image if no longer requires a tag push")
+	}
+	requireOrder(t, "release.yml", rel,
+		"\n      - name: Canonicalize release ref\n",
+		"\n      - uses: actions/checkout@",
+	)
+	tagStart := strings.Index(rel, "\n  tag-gate:\n")
+	pubStart := strings.Index(rel, "\n  publish-image:\n")
+	if tagStart < 0 || pubStart < 0 || tagStart >= pubStart {
+		t.Fatalf("job keys tag=%d publish=%d", tagStart, pubStart)
+	}
+	requireOrder(t, "tag-gate", rel[tagStart:pubStart],
+		"\n      - name: Canonicalize release ref\n",
+		"\n      - uses: actions/checkout@",
+		"refs/tags/${ref}^{commit}",
+		`[ "$head" != "$sha" ]`,
+	)
+	requireOrder(t, "publish-image", rel[pubStart:],
+		"\n      - name: Canonicalize release ref\n",
+		"\n      - uses: actions/checkout@",
+		"ref: refs/tags/${{ steps.tag.outputs.ref }}",
+		"refs/tags/${ref}^{commit}",
+		`[ "$head" != "$sha" ]`,
+		"VERSION=${{ steps.tag.outputs.ref }}",
+		"COMMIT=${{ steps.rev.outputs.sha }}",
+		"RELEASE_REF: ${{ steps.tag.outputs.ref }}",
+	)
 }
 
-// The env-path tag error is fixed text, so a ref whose name contains the
-// workflow's retry words is not retried.
+func requireOrder(t *testing.T, label, body string, parts ...string) {
+	t.Helper()
+	from := 0
+	for _, part := range parts {
+		rel := strings.Index(body[from:], part)
+		if rel < 0 {
+			t.Fatalf("%s: %q not found at or after offset %d", label, part, from)
+		}
+		from += rel + len(part)
+	}
+}
+
+// The env-path tag error is fixed text and does not echo the ref. The retry
+// signal is exit 75, and run([]string{"-require-ci"}) returns 1 for
+// GITHUB_REF_NAME of pending, no matching run, and x-pending.
 func TestEnvTagErrorDoesNotEchoRef(t *testing.T) {
 	for _, name := range []string{"pending", "no matching run", "x-pending"} {
 		t.Run(name, func(t *testing.T) {
 			installFakeGH(t, mainAndTagRuns(), "cat <<'EOF'\n"+greenJobsJSON+"\nEOF\nexit 0\n")
 			dispatchEnv(t)
 			t.Setenv("GITHUB_REF_NAME", name)
-			err := requireGreenCI("", "")
-			if err == nil {
-				t.Fatal("branch name accepted as a tag")
+			var errb bytes.Buffer
+			if code := run([]string{"-require-ci"}, &errb); code != 1 {
+				t.Fatalf("code %d: %s", code, errb.String())
 			}
-			if strings.Contains(err.Error(), "pending") || strings.Contains(err.Error(), "no matching run") {
-				t.Fatalf("env tag error looks retryable: %v", err)
+			if strings.Contains(errb.String(), "pending") || strings.Contains(errb.String(), "no matching run") || strings.Contains(errb.String(), name) {
+				t.Fatalf("env tag error echoes the ref: %s", errb.String())
+			}
+			err := requireGreenCI("", "")
+			if err == nil || retryable(err) {
+				t.Fatalf("err=%v", err)
 			}
 		})
 	}
+}
+
+func TestReleaseTagPattern(t *testing.T) {
+	accepts := []string{
+		"v1.2.3",
+		"v1.2.3-rc.1",
+		"v1.0.0-pending",
+		"v01.2.3",
+		"refs/tags/v1.2.3",
+		" v1.2.3 ",
+	}
+	for _, raw := range accepts {
+		t.Run("flag/"+raw, func(t *testing.T) {
+			got, err := flagTag(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := strings.TrimPrefix(strings.TrimSpace(raw), "refs/tags/")
+			if got != want {
+				t.Fatalf("got %q want %q", got, want)
+			}
+		})
+	}
+	t.Run("env/refs/tags/v1.2.3", func(t *testing.T) {
+		t.Setenv("GITHUB_REF", "refs/tags/v1.2.3")
+		t.Setenv("GITHUB_REF_NAME", "main")
+		got, err := resolveReleaseTag()
+		if err != nil || got != "v1.2.3" {
+			t.Fatalf("got %q err %v", got, err)
+		}
+	})
+	for _, name := range []string{"v1.2.3", "v1.2.3-rc.1", "v1.0.0-pending", "v01.2.3", " v1.2.3 "} {
+		t.Run("env-name/"+name, func(t *testing.T) {
+			t.Setenv("GITHUB_REF", "refs/heads/main")
+			t.Setenv("GITHUB_REF_NAME", name)
+			got, err := resolveReleaseTag()
+			want := strings.TrimSpace(name)
+			if err != nil || got != want {
+				t.Fatalf("got %q err %v want %q", got, err, want)
+			}
+		})
+	}
+	rejects := []string{"vpending", "v1", "v1.2", "v1.2.3.4", "v1.2.3+meta", "main", ""}
+	for _, raw := range rejects {
+		t.Run("flag-reject/"+raw, func(t *testing.T) {
+			if _, err := flagTag(raw); err == nil || retryable(err) {
+				t.Fatalf("err=%v", err)
+			}
+		})
+		t.Run("env-reject/"+raw, func(t *testing.T) {
+			t.Setenv("GITHUB_REF", "refs/heads/main")
+			t.Setenv("GITHUB_REF_NAME", raw)
+			if _, err := resolveReleaseTag(); err == nil || retryable(err) {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}
+
+func TestExitCodes(t *testing.T) {
+	viewFail := "echo 'view should not run' >&2\nexit 1\n"
+	t.Run("in progress", func(t *testing.T) {
+		installFakeGH(t, listRunJSON(tagSHA, "v1.2.3", "in_progress", "", "push"), viewFail)
+		dispatchEnv(t)
+		code, msg := runRequireCI(t, "v1.2.3", tagSHA)
+		if code != exitRetryable || msg != "release-gate: pending CI run for tag v1.2.3\n" {
+			t.Fatalf("code %d\n%s", code, msg)
+		}
+		if !strings.HasPrefix(msg, "release-gate: pending ") {
+			t.Fatalf("stderr %q", msg)
+		}
+	})
+	t.Run("no matching run", func(t *testing.T) {
+		installFakeGH(t, listRunJSON(tagSHA, "main", "completed", "success", "push"), viewFail)
+		dispatchEnv(t)
+		code, msg := runRequireCI(t, "v1.2.3", tagSHA)
+		want := "release-gate: no matching run for tag v1.2.3 commit " + tagSHA + "\n"
+		if code != exitRetryable || msg != want {
+			t.Fatalf("code %d\n%s", code, msg)
+		}
+		if !strings.HasPrefix(msg, "release-gate: no matching run ") || strings.HasPrefix(msg, "release-gate: pending") {
+			t.Fatalf("stderr %q", msg)
+		}
+	})
+	t.Run("prerelease red job", func(t *testing.T) {
+		const tag = "v1.0.0-pending"
+		body := strings.Replace(greenJobsJSON, `{"name":"unit","conclusion":"success"}`, `{"name":"unit","conclusion":"failure"}`, 1)
+		installFakeGH(t, listRunJSON(tagSHA, tag, "completed", "success", "push"), "cat <<'EOF'\n"+body+"\nEOF\nexit 0\n")
+		dispatchEnv(t)
+		err := requireGreenCI(tag, tagSHA)
+		if err == nil || retryable(err) || !strings.Contains(err.Error(), "not green") {
+			t.Fatalf("err=%v", err)
+		}
+		code, msg := runRequireCI(t, tag, tagSHA)
+		if code != 1 || !strings.Contains(msg, "not green") || strings.HasPrefix(msg, "release-gate: pending ") {
+			t.Fatalf("code %d\n%s", code, msg)
+		}
+	})
+	t.Run("prerelease bad sha", func(t *testing.T) {
+		dispatchEnv(t)
+		err := requireGreenCI("v1.0.0-pending", "pending")
+		if err == nil || retryable(err) {
+			t.Fatalf("err=%v", err)
+		}
+		code, msg := runRequireCI(t, "v1.0.0-pending", "pending")
+		if code != 1 || strings.Contains(msg, "v1.0.0-pending") || !strings.Contains(msg, "-sha is not a full lowercase commit sha") {
+			t.Fatalf("code %d\n%s", code, msg)
+		}
+	})
+	t.Run("gh list text is not retryable", func(t *testing.T) {
+		installGHListFails(t)
+		dispatchEnv(t)
+		code, msg := runRequireCI(t, "v1.0.0-pending", tagSHA)
+		if code != 1 || strings.HasPrefix(msg, "release-gate: pending ") || strings.HasPrefix(msg, "release-gate: no matching run ") {
+			t.Fatalf("code %d\n%s", code, msg)
+		}
+	})
+	t.Run("prerelease in progress", func(t *testing.T) {
+		const tag = "v1.0.0-pending"
+		installFakeGH(t, listRunJSON(tagSHA, tag, "in_progress", "", "push"), viewFail)
+		dispatchEnv(t)
+		code, msg := runRequireCI(t, tag, tagSHA)
+		if code != exitRetryable || !strings.HasPrefix(msg, "release-gate: pending ") || !strings.Contains(msg, tag) {
+			t.Fatalf("code %d\n%s", code, msg)
+		}
+		if msg != "release-gate: pending CI run for tag v1.0.0-pending\n" {
+			t.Fatalf("stderr %q", msg)
+		}
+	})
+	t.Run("vpending", func(t *testing.T) {
+		installFakeGH(t, listRunJSON(tagSHA, "vpending", "completed", "success", "push"), viewFail)
+		dispatchEnv(t)
+		err := requireGreenCI("vpending", tagSHA)
+		if err == nil || retryable(err) || strings.Contains(err.Error(), "vpending") {
+			t.Fatalf("err=%v", err)
+		}
+		code, msg := runRequireCI(t, "vpending", tagSHA)
+		if code != 1 || strings.Contains(msg, "vpending") || !strings.Contains(msg, "-tag is not a release tag") {
+			t.Fatalf("code %d\n%s", code, msg)
+		}
+	})
+}
+
+func runRequireCI(t *testing.T, tag, sha string) (int, string) {
+	t.Helper()
+	var errb bytes.Buffer
+	code := run([]string{"-require-ci", "-tag", tag, "-sha", sha}, &errb)
+	return code, errb.String()
+}
+
+// listRunJSON is one gh run list row. headSha is the -sha passed to the gate.
+func listRunJSON(headSha, headBranch, status, conclusion, event string) string {
+	return fmt.Sprintf(`[{"databaseId":11,"conclusion":%q,"status":%q,"headSha":%q,"event":%q,"headBranch":%q}]`,
+		conclusion, status, headSha, event, headBranch)
+}
+
+// installGHListFails is a gh that prints the old retry words and exits 1.
+func installGHListFails(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\necho pending >&2\necho 'no matching run' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":/usr/bin:/bin")
 }

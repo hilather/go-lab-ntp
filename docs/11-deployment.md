@@ -36,6 +36,13 @@ Tag-triggered workflow [`.github/workflows/release.yml`](../.github/workflows/re
   is empty only when the tagged commit matches `origin/main`'s tree. Normal
   releases tag current main. Tagging an older commit can fail the changelog
   job.
+- The tag is checked against `^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`
+  before checkout. Checkout is only `refs/tags/<tag>`. The job fails unless
+  `HEAD` is `refs/tags/<tag>^{commit}`, and that peeled commit is passed as
+  `-sha`. The gate exits 75 while the tag's own push run is missing or not
+  completed, and the workflow retries only status 75. The ref is not
+  interpolated into `run:`. `publish-image` checks out the same canonical
+  tag and runs only on a tag push.
 
 First push may create a private package. A human may need to mark
 `ghcr.io/hilather/labntp` public in the org UI so the integrator can pull
