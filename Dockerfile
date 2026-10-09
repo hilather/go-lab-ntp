@@ -6,7 +6,7 @@
 # NET_BIND_SERVICE so bind-to-123 works. Default make test-container
 # (later) uses --ntp-listen=:1123 and cap_drop ALL.
 
-FROM golang:1.26.8-alpine AS build
+FROM golang:1.26.9-alpine AS build
 WORKDIR /src
 
 RUN apk add --no-cache ca-certificates tzdata
