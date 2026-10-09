@@ -26,11 +26,17 @@ out="${DIFFTRANSCRIPT_OUT:-difftranscript-out}"
 rm -rf "$out"
 mkdir -p "$out"
 
-# secretFile values are absolute paths and are copied into state JSON, so
-# they show up in the transcript (state get, export). Base, head, and both
-# self-diff passes must share one fixture directory. It lives under the
-# output dir, not mktemp, so a repeated run from this checkout reuses the
-# same path too. Do not give each pass its own directory.
+# secretFile values are copied into state JSON, so they show up in the
+# transcript (state get, export). The harness joins $out/fixture with
+# "normal" or "rate", then the secret name. filepath.Join does not
+# absolutize. $out defaults to the relative path "difftranscript-out"
+# and the driver runs from the repo root, so the values are
+# repo-root-relative paths of the form
+# difftranscript-out/fixture/normal/<name>.secret (and rate/). An absolute
+# DIFFTRANSCRIPT_OUT makes those paths absolute. Base, head, and both
+# self-diff passes must share that one fixture directory. It lives under
+# the output dir, not mktemp, so a repeated run from this checkout reuses
+# the same path. Do not give each pass its own directory.
 fixture="$out/fixture"
 rm -rf "$fixture"
 mkdir -p "$fixture"
