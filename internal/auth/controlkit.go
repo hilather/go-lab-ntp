@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"strings"
@@ -57,8 +58,8 @@ func FromSpec(spec model.AuthSpec) (*Verifier, error) {
 // unknown mode, then each token's empty id, duplicate id, secret read,
 // length, duplicate digest, and unknown role. A later secret file is not
 // opened after that return. A role that differs from its trimmed form is
-// rejected before that token's file is opened and before Load, which trims
-// the role and would accept it (plan NB6).
+// rejected after that token's read, length, and duplicate-value checks, and
+// before Load, which trims the role and would accept it (plan NB6).
 //
 // Each secret is read once, through wrap. Load then compiles those bytes
 // from memory so a second pass does not open the files again.
@@ -85,20 +86,32 @@ func FromSpecWith(spec model.AuthSpec, wrap func(TokenSource) TokenSource) (*Ver
 		if _, dup := seen[id]; dup {
 			return nil, invalidSpec("duplicate token id", tokenPath(i, "id"), "duplicate_id", "duplicate token id")
 		}
-		// NB6. Load trims the role before Expand, so a padded role would
-		// compile. Reject it before this token's file is opened.
-		if tok.Role != strings.TrimSpace(tok.Role) {
-			return nil, invalidSpec("unknown role", tokenPath(i, "role"), "invalid_value", "role must be viewer, operator, or administrator")
-		}
 		got, _, err := src.Read()
 		if err != nil || len(got) != 1 {
 			wipeRaw(got)
 			return nil, invalidSpec("token secret is unavailable", tokenPath(i, "secretFile"), "unresolved_reference", "token secret file does not resolve")
 		}
 		hold.tokens = append(hold.tokens, got[0])
+		// Length and duplicate value use the bytes just read. Main compared
+		// SHA-256 of those bytes; equality is the same result, and this
+		// package must not hash them again. Both run before the role check
+		// and before Load, which trims a padded role and would accept it.
+		if got[0].Secret.Len() < MinTokenBytes {
+			return nil, invalidSpec("token entropy is below 256 bits", tokenPath(i, "secretFile"), "invalid_value", "token secret must be at least 32 bytes")
+		}
+		for j := 0; j < len(hold.tokens)-1; j++ {
+			if sameSecret(hold.tokens[j].Secret, got[0].Secret) {
+				other := strings.TrimSpace(hold.tokens[j].ID)
+				return nil, invalidSpec("duplicate token value", tokenPath(i, "secretFile"), "duplicate_id", "token value matches "+other)
+			}
+		}
+		// NB6. Load trims the role before Expand, so a padded role would
+		// compile. Reject it in main's role position: after this token's
+		// secret checks, before Load.
+		if tok.Role != strings.TrimSpace(tok.Role) {
+			return nil, invalidSpec("unknown role", tokenPath(i, "role"), "invalid_value", "role must be viewer, operator, or administrator")
+		}
 		seen[id] = struct{}{}
-		// Length, duplicate digest, and unknown role run here, on the tokens
-		// read so far, before the next file is opened.
 		m, lerr := authn.Load(ntpAuthConfig(mode, modeText, authn.Memory(hold.tokens)))
 		if lerr != nil {
 			return nil, mapLoadErr(lerr)
@@ -535,6 +548,22 @@ func wipeRaw(tokens []authn.RawToken) {
 	for i := range tokens {
 		tokens[i].Secret.Zero()
 	}
+}
+
+func wipeBytes(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}
+
+// sameSecret is the load-time duplicate-value check. Main rejected a repeated
+// SHA-256 of these bytes. The auth fence forbids a second digest here.
+func sameSecret(a, b authn.Secret) bool {
+	ab := a.Bytes()
+	bb := b.Bytes()
+	defer wipeBytes(ab)
+	defer wipeBytes(bb)
+	return bytes.Equal(ab, bb)
 }
 
 func invalidSpec(top, path, code, message string) error {

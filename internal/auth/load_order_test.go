@@ -84,6 +84,74 @@ func TestLoadOrderShortSecretThenMissingFile(t *testing.T) {
 	}
 }
 
+// Padded roles used to win before the secret was read. FromSpec at d65c558
+// (internal/auth/verifier.go) did, per token: empty id, duplicate id, read,
+// length floor, duplicate digest, then the role. A role that is not equal to
+// its trimmed form is still rejected, after those secret checks and before
+// authn.Load. Each case below is that order: the earlier fault is the one
+// main returned, the failing file is opened once, and a later file is not.
+
+func TestLoadOrderPaddedRoleShortSecret(t *testing.T) {
+	// d65c558 returns the length floor after a successful read and before KnownRole.
+	// " administrator" is not consulted. The next token is not reached.
+	dir := t.TempDir()
+	short := writeOrderSecret(t, dir, "short.token", "too-short\n")
+	later := writeOrderSecret(t, dir, "later.token", "0123456789abcdef0123456789abcdef\n")
+	opens, err := loadOrder(t, model.AuthSpec{
+		Mode: model.MgmtAuthBearer,
+		Tokens: []model.TokenSpec{
+			{ID: "admin", Role: " administrator", SecretFile: short},
+			{ID: "other", Role: model.RoleViewer, SecretFile: later},
+		},
+	})
+	assertMainLoad(t, err, "token entropy is below 256 bits", "spec.auth.tokens[0].secretFile", "invalid_value", "token secret must be at least 32 bytes")
+	if opens[short] != 1 || opens[later] != 0 {
+		t.Fatalf("opens %v", opens)
+	}
+}
+
+func TestLoadOrderPaddedRoleMissingFile(t *testing.T) {
+	// d65c558 returns unavailable when readSecretFile fails, before KnownRole.
+	// The missing path is opened once. The next token is not reached.
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "missing.token")
+	later := writeOrderSecret(t, dir, "later.token", "0123456789abcdef0123456789abcdef\n")
+	opens, err := loadOrder(t, model.AuthSpec{
+		Mode: model.MgmtAuthBearer,
+		Tokens: []model.TokenSpec{
+			{ID: "admin", Role: " administrator", SecretFile: missing},
+			{ID: "other", Role: model.RoleViewer, SecretFile: later},
+		},
+	})
+	assertMainLoad(t, err, "token secret is unavailable", "spec.auth.tokens[0].secretFile", "unresolved_reference", "token secret file does not resolve")
+	if opens[missing] != 1 || opens[later] != 0 {
+		t.Fatalf("opens %v", opens)
+	}
+}
+
+func TestLoadOrderPaddedRoleDuplicateSecret(t *testing.T) {
+	// d65c558 stores token 0's digest under its trimmed id, then on token 1
+	// returns "token value matches <first id>" on secretFile before KnownRole.
+	// Token 1's file is opened once. A later file is not.
+	dir := t.TempDir()
+	const body = "0123456789abcdef0123456789abcdef\n"
+	first := writeOrderSecret(t, dir, "first.token", body)
+	dup := writeOrderSecret(t, dir, "dup.token", body)
+	later := writeOrderSecret(t, dir, "later.token", "abcdef0123456789abcdef0123456789\n")
+	opens, err := loadOrder(t, model.AuthSpec{
+		Mode: model.MgmtAuthBearer,
+		Tokens: []model.TokenSpec{
+			{ID: "admin", Role: model.RoleAdministrator, SecretFile: first},
+			{ID: "clone", Role: " administrator", SecretFile: dup},
+			{ID: "other", Role: model.RoleViewer, SecretFile: later},
+		},
+	})
+	assertMainLoad(t, err, "duplicate token value", "spec.auth.tokens[1].secretFile", "duplicate_id", "token value matches admin")
+	if opens[first] != 1 || opens[dup] != 1 || opens[later] != 0 {
+		t.Fatalf("opens %v", opens)
+	}
+}
+
 func TestMapLoadErrUnrecognizedDoesNotClaimMissingFile(t *testing.T) {
 	err := mapLoadErr(&authn.LoadError{
 		Code:  "required",
