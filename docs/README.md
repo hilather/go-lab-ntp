@@ -56,6 +56,7 @@ The numbered files below are the precise rules. When they disagree with a task s
 | [0012-ntpd-concatenation-mac.md](adr/0012-ntpd-concatenation-mac.md) | MAC construction (D21) |
 | [0013-monotonic-elapsed.md](adr/0013-monotonic-elapsed.md) | Monotonic elapsed (D22) |
 | [0014-host-publish-source-preserving-udp.md](adr/0014-host-publish-source-preserving-udp.md) | userland-proxy / NAT collision (D24) |
+| [0015-adopt-go-lab-controlkit.md](adr/0015-adopt-go-lab-controlkit.md) | adopt go-lab-controlkit (R4, R5, R7) |
 
 ## Tasks
 

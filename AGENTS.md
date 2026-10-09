@@ -25,7 +25,7 @@ The numbered pack is the source of truth after foundation. Do not invent paths, 
 - The NTP data plane must keep answering if REST/MCP/UI is slow or unbound (`--management-listen=off`).
 - Desired state is YAML. Query log and materialized `epoch` are not persisted back to the bootstrap file. Reset rereads bootstrap and never writes it.
 - Do not import an NTP library (`beevik/ntp`, `facebook/time`, chrony, ntpd). First-party `internal/ntpwire` only (ADR 0002).
-- Direct production deps: `gopkg.in/yaml.v3` and the official MCP SDK. The MCP adapter may import the SDK’s already-pinned `github.com/google/jsonschema-go` only to relax generated tool-input `required` for ViewSpec zero-defaults. No Prometheus client.
+- Direct production deps: `gopkg.in/yaml.v3`, the official MCP SDK, and `github.com/hilather/go-lab-controlkit` (Apache-2.0), reached only through the facade files listed under Dependencies. The MCP adapter may import the SDK’s already-pinned `github.com/google/jsonschema-go` only to relax generated tool-input `required` for ViewSpec zero-defaults. No Prometheus client.
 - **Never set the LabNTP process / lab host clock** (D14 / ADR 0007). Forbidden selectors: `Settimeofday`, `ClockSettime`, `Adjtimex`, `ClockAdjtime`, `Adjtime`. Forbidden `exec.Command` / `CommandContext` string-literal basenames: `date`, `hwclock`, `chronyc`, `ntpd`, `timedatectl`. Do **not** match identifier `date` / `Date` (`time.Date` is required for era constants). `unix.ClockGettime` is allowed **only** in `_test.go` to *read* clocks.
 - Filter match is **list order, first enabled wins**. Longest-prefix does not win (ADR 0009).
 - `absolute` is step-then-follow at rate 1.0. `freeze` is the stop-clock mode (ADR 0008).
@@ -61,7 +61,16 @@ The numbered pack is the source of truth after foundation. Do not invent paths, 
 - Prefer the Go standard library.
 - Pin direct dependencies and review transitive changes.
 - Allowed data-plane direct dep: `gopkg.in/yaml.v3`. MCP SDK plus its pinned `jsonschema-go` for adapter input-schema `required` only.
+- `github.com/hilather/go-lab-controlkit` (Apache-2.0), reached only through the facade files listed below.
 - No Prometheus client. No NTP library.
+
+Auth, session, origin, rate-limit and audit primitives come from go-lab-controlkit through the facade files listed below. Do not add `crypto/subtle`, SHA-256 token digests, session maps or token-file parsing to `internal/auth` or `internal/control/...` outside those files. `scripts/check-auth-fence.sh` enforces this in CI.
+
+- `internal/auth/controlkit.go`
+- `internal/auth/errors.go`
+- `internal/audit/controlkit.go` (commit 3; the audit package is the other facade)
+- `internal/app/idempotency.go` (storage becomes `idem.Cache`; the `{reason, operations}` marshal stays here)
+- `internal/control/mcp/auth.go` (capped limiter only; authenticate and authorize stay in this file)
 
 ## Required completion commands
 

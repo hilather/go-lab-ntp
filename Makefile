@@ -19,7 +19,7 @@ help:
 		'  format              go fmt ./...' \
 		'  fmt                 alias for format' \
 		'  vet                 go vet ./...' \
-		'  lint                go vet + golangci-lint $(GOLANGCI_LINT_VERSION)' \
+		'  lint                go vet + golangci-lint $(GOLANGCI_LINT_VERSION) + scripts/check-auth-fence.sh' \
 		'  build               go build -o bin/labntp ./cmd/labntp' \
 		'  generate            write api/capabilities, openapi, mcp, metrics JSON' \
 		'  verify-generated    fail if generate would change those files' \
@@ -48,6 +48,7 @@ vet:
 
 lint: vet
 	$(GO) run $(GOLANGCI_LINT_MOD) run ./...
+	bash scripts/check-auth-fence.sh
 
 build:
 	$(GO) build -o bin/labntp ./cmd/labntp

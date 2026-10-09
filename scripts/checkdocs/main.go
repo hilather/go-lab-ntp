@@ -49,6 +49,7 @@ var RequiredRootDocs = []string{
 	"docs/adr/0012-ntpd-concatenation-mac.md",
 	"docs/adr/0013-monotonic-elapsed.md",
 	"docs/adr/0014-host-publish-source-preserving-udp.md",
+	"docs/adr/0015-adopt-go-lab-controlkit.md",
 	"tasks/00-program-board.md",
 	"tasks/README.md",
 	".github/workflows/ci.yml",

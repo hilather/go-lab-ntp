@@ -28,6 +28,21 @@ func TestNoControlWebImports(t *testing.T) {
 			if strings.Contains(path, "internal/control") || strings.Contains(path, "internal/web") {
 				t.Errorf("%s imports %s", name, path)
 			}
+			if isControlkit(path) && !controlkitFacade(name) {
+				t.Errorf("%s imports %s", name, path)
+			}
 		}
 	}
+}
+
+// isControlkit reports an import of go-lab-controlkit or one of its packages.
+func isControlkit(path string) bool {
+	const mod = "github.com/hilather/go-lab-controlkit"
+	return path == mod || strings.HasPrefix(path, mod+"/")
+}
+
+// controlkitFacade is the ADR 0015 allowlist for this package.
+// idempotency.go is the idem facade. This commit adds no require.
+func controlkitFacade(name string) bool {
+	return name == "idempotency.go"
 }

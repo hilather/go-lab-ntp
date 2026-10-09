@@ -31,6 +31,16 @@ func TestNoMCPImport(t *testing.T) {
 			if path == "github.com/hilather/go-lab-ntp/internal/web" || strings.HasPrefix(path, "github.com/hilather/go-lab-ntp/internal/web/") {
 				t.Errorf("%s production file imports internal/web %s", name, path)
 			}
+			if isControlkit(path) {
+				t.Errorf("%s imports %s", name, path)
+			}
 		}
 	}
+}
+
+// isControlkit reports an import of go-lab-controlkit or one of its packages.
+// REST has no facade file. The limiter stays in this package.
+func isControlkit(path string) bool {
+	const mod = "github.com/hilather/go-lab-controlkit"
+	return path == mod || strings.HasPrefix(path, mod+"/")
 }
