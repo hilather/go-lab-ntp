@@ -28,6 +28,11 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 - A `workflow_dispatch` re-gate of a release tag works when started from a branch. GitHub ignores the release workflow's step-env overrides of `GITHUB_SHA`, `GITHUB_REF` and `GITHUB_REF_NAME`, so the gate saw the branch and failed. The workflow now passes the tag and the checked-out commit to `release-gate -require-ci` as `-tag` and `-sha`; `-tag` without `-sha` uses `git rev-parse HEAD`.
 - A manual release re-gate checks the tag against `^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$` before checkout and checks out only `refs/tags/<tag>`. The workflow fails unless `HEAD` is `refs/tags/<tag>^{commit}`, and that commit is the `-sha` passed to `release-gate`. A branch named like the tag can no longer win checkout. `release-gate` exits 75 only when that tag's CI run is missing or not completed, and the workflow retries only status 75. A pre-release tag such as `v1.0.0-pending` does not make any other error retry. `publish-image` checks out the same canonical tag, records the peeled commit, and builds only the commit tag-gate approved.
 - Raise `golang.org/x/sys` from v0.41.0 to v0.47.0, past advisory GO-2026-5024 (fixed in v0.44.0). govulncheck found it in a required module only; no LabNTP code path called it.
+- The tag release gate fails unless each required CI job name appears exactly once in that tag run and its conclusion is success. A later green copy no longer hides an earlier failure, two green copies of the same name fail, and a missing job still fails. Those results exit 1 and the workflow does not retry them.
+
+### Security
+
+- Release checkout sets `persist-credentials: false` on both checkouts, so the job token is not left in the worktree. The image build context excludes `.git`, `.github`, `docs`, and every `testdata` directory (`**/testdata`, including nested ones).
 
 ### Removed or deprecated
 

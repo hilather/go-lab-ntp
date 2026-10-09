@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -439,6 +440,24 @@ func TestWorkflowContract(t *testing.T) {
 	if got := strings.Count(rel, "ref: refs/tags/${{ steps.tag.outputs.ref }}"); got != 2 {
 		t.Errorf("canonical checkout ref count = %d, want 2", got)
 	}
+	checkoutParts := strings.Split(rel, "uses: actions/checkout@")
+	if len(checkoutParts) != 3 {
+		t.Fatalf("actions/checkout steps = %d, want 2", len(checkoutParts)-1)
+	}
+	for i, chunk := range checkoutParts[1:] {
+		if cut := strings.Index(chunk, "\n      - "); cut >= 0 {
+			chunk = chunk[:cut]
+		}
+		if !strings.Contains(chunk, "persist-credentials: false") {
+			t.Errorf("checkout step %d missing persist-credentials: false:\n%s", i+1, chunk)
+		}
+	}
+	if got := strings.Count(rel, "persist-credentials: false"); got != 2 {
+		t.Errorf("persist-credentials: false count = %d, want 2", got)
+	}
+	if strings.Contains(rel, "persist-credentials: true") {
+		t.Error("release.yml sets persist-credentials: true")
+	}
 	for _, bad := range []string{
 		"ref: ${{ github.event.inputs.ref || github.ref }}",
 		"ref: ${{ github.ref }}",
@@ -483,12 +502,15 @@ func TestWorkflowContract(t *testing.T) {
 		tagGateOutputs,
 		"\n      - name: Canonicalize release ref\n",
 		"\n      - uses: actions/checkout@",
+		"persist-credentials: false",
+		"ref: refs/tags/${{ steps.tag.outputs.ref }}",
 		"refs/tags/${ref}^{commit}",
 		headMismatch,
 	)
 	requireOrder(t, "publish-image", rel[pubStart:],
 		"\n      - name: Canonicalize release ref\n",
 		"\n      - uses: actions/checkout@",
+		"persist-credentials: false",
 		"ref: refs/tags/${{ steps.tag.outputs.ref }}",
 		"GATED_SHA: ${{ needs.tag-gate.outputs.sha }}",
 		"GATED_REF: ${{ needs.tag-gate.outputs.ref }}",
@@ -676,6 +698,109 @@ func TestExitCodes(t *testing.T) {
 			t.Fatalf("code %d\n%s", code, msg)
 		}
 	})
+	t.Run("duplicate failure then success", func(t *testing.T) {
+		const tag = "v1.2.3"
+		// Failure is first. A last-wins map would keep success and pass.
+		body := viewJobs(map[string][]string{"unit": {"failure", "success"}}, "")
+		installFakeGH(t, listRunJSON(tagSHA, tag, "completed", "success", "push"), "cat <<'EOF'\n"+body+"\nEOF\nexit 0\n")
+		dispatchEnv(t)
+		code, msg := runRequireCI(t, tag, tagSHA)
+		if code != 1 {
+			t.Fatalf("code %d\n%s", code, msg)
+		}
+		if !strings.Contains(msg, "exactly once") || !strings.Contains(msg, "unit=failure") {
+			t.Fatalf("stderr %q", msg)
+		}
+		if strings.HasPrefix(msg, "release-gate: pending") || strings.HasPrefix(msg, "release-gate: no matching run") {
+			t.Fatalf("stderr %q", msg)
+		}
+	})
+	t.Run("duplicate both success", func(t *testing.T) {
+		const tag = "v1.2.3"
+		body := viewJobs(map[string][]string{"unit": {"success", "success"}}, "")
+		installFakeGH(t, listRunJSON(tagSHA, tag, "completed", "success", "push"), "cat <<'EOF'\n"+body+"\nEOF\nexit 0\n")
+		dispatchEnv(t)
+		code, msg := runRequireCI(t, tag, tagSHA)
+		if code != 1 {
+			t.Fatalf("code %d\n%s", code, msg)
+		}
+		if !strings.Contains(msg, "exactly once") || strings.Contains(msg, "unit=failure") {
+			t.Fatalf("stderr %q", msg)
+		}
+		if strings.HasPrefix(msg, "release-gate: pending") || strings.HasPrefix(msg, "release-gate: no matching run") {
+			t.Fatalf("stderr %q", msg)
+		}
+	})
+	t.Run("missing job", func(t *testing.T) {
+		const tag = "v1.2.3"
+		body := viewJobs(nil, "web")
+		installFakeGH(t, listRunJSON(tagSHA, tag, "completed", "success", "push"), "cat <<'EOF'\n"+body+"\nEOF\nexit 0\n")
+		dispatchEnv(t)
+		code, msg := runRequireCI(t, tag, tagSHA)
+		if code != 1 {
+			t.Fatalf("code %d\n%s", code, msg)
+		}
+		if !strings.Contains(msg, "web=missing") || !strings.Contains(msg, "not green") {
+			t.Fatalf("stderr %q", msg)
+		}
+	})
+	t.Run("extra failed job ignored", func(t *testing.T) {
+		const tag = "v1.2.3"
+		body := viewJobs(map[string][]string{"apidiff": {"failure"}}, "")
+		installFakeGH(t, listRunJSON(tagSHA, tag, "completed", "success", "push"), "cat <<'EOF'\n"+body+"\nEOF\nexit 0\n")
+		dispatchEnv(t)
+		code, msg := runRequireCI(t, tag, tagSHA)
+		if code != 0 {
+			t.Fatalf("code %d\n%s", code, msg)
+		}
+	})
+}
+
+// viewJobs builds a gh run view --json jobs document.
+// For each required name other than skip, it emits one success job, or
+// every conclusion in conclusions[name] in slice order when that key is set.
+// conclusions keys that are not required names are appended.
+func viewJobs(conclusions map[string][]string, skip string) string {
+	required := map[string]bool{}
+	for _, name := range requiredCIJobs {
+		required[name] = true
+	}
+	var b strings.Builder
+	b.WriteString(`{"jobs":[`)
+	first := true
+	write := func(name, conclusion string) {
+		if !first {
+			b.WriteByte(',')
+		}
+		first = false
+		fmt.Fprintf(&b, `{"name":%q,"conclusion":%q}`, name, conclusion)
+	}
+	for _, name := range requiredCIJobs {
+		if name == skip {
+			continue
+		}
+		cs, ok := conclusions[name]
+		if !ok {
+			cs = []string{"success"}
+		}
+		for _, c := range cs {
+			write(name, c)
+		}
+	}
+	extras := make([]string, 0, len(conclusions))
+	for name := range conclusions {
+		if !required[name] {
+			extras = append(extras, name)
+		}
+	}
+	sort.Strings(extras)
+	for _, name := range extras {
+		for _, c := range conclusions[name] {
+			write(name, c)
+		}
+	}
+	b.WriteString(`]}`)
+	return b.String()
 }
 
 func runRequireCI(t *testing.T, tag, sha string) (int, string) {
