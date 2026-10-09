@@ -2,7 +2,7 @@
 #
 # Required jobs: format, lint, unit, race, fuzz-smoke, documentation,
 # config-compat, changelog, generated-file, parity, security-scan,
-# container-test, web. Do not mark a failing check optional.
+# container-test, diff-transcript, web. Do not mark a failing check optional.
 
 name: CI
 

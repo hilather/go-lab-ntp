@@ -22,7 +22,7 @@ var requiredHeadings = []string{
 var requiredCIJobs = []string{
 	"format", "lint", "unit", "race", "fuzz-smoke", "documentation",
 	"config-compat", "changelog", "generated-file", "parity", "security-scan",
-	"container-test", "web",
+	"container-test", "diff-transcript", "web",
 }
 
 // releaseTagPattern is the tag shape the release workflow accepts.

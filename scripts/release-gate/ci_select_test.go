@@ -21,6 +21,7 @@ const greenJobsJSON = `{"jobs":[
   {"name":"parity","conclusion":"success"},
   {"name":"security-scan","conclusion":"success"},
   {"name":"container-test","conclusion":"success"},
+  {"name":"diff-transcript","conclusion":"success"},
   {"name":"web","conclusion":"success"}
 ]}`
 
