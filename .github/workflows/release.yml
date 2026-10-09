@@ -87,12 +87,15 @@ jobs:
       - name: Require green CI on this commit
         env:
           GH_TOKEN: ${{ github.token }}
-          GITHUB_SHA: ${{ steps.rev.outputs.sha }}
-          GITHUB_REF: refs/tags/${{ steps.gate.outputs.ref }}
-          GITHUB_REF_NAME: ${{ steps.gate.outputs.ref }}
+          # GitHub ignores step env that sets GITHUB_SHA, GITHUB_REF or
+          # GITHUB_REF_NAME; on workflow_dispatch those name the dispatching
+          # branch and its head.
+          # Pass the tag and the checked-out commit explicitly.
+          RELEASE_TAG: ${{ steps.gate.outputs.ref }}
+          RELEASE_SHA: ${{ steps.rev.outputs.sha }}
         run: |
           for i in $(seq 1 70); do
-            if out=$(go run ./scripts/release-gate -require-ci 2>&1); then
+            if out=$(go run ./scripts/release-gate -require-ci -tag "$RELEASE_TAG" -sha "$RELEASE_SHA" 2>&1); then
               echo "$out"
               exit 0
             fi
