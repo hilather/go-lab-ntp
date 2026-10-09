@@ -6,6 +6,7 @@
 *.out
 coverage.out
 coverage.html
+/difftranscript-out/
 
 # Local toolchain caches
 .gocache/
