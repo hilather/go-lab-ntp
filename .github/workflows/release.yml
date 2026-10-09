@@ -31,7 +31,7 @@ permissions:
   checks: read
 
 concurrency:
-  group: release-${{ github.workflow }}-${{ github.event.inputs.ref || github.ref }}
+  group: release-${{ github.workflow }}-${{ startsWith(github.event.inputs.ref || github.ref, 'refs/') && (github.event.inputs.ref || github.ref) || format('refs/tags/{0}', github.event.inputs.ref) }}
   cancel-in-progress: false
 
 env:
