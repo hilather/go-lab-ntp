@@ -24,6 +24,7 @@ import (
 const (
 	protocolVersion = "2026-07-28"
 	adminSecret     = "0123456789abcdef0123456789abcdef"
+	keeperSecret    = "00112233445566778899aabbccddeeff"
 	operatorSecret  = "abcdef0123456789abcdef0123456789"
 	viewerSecret    = "fedcba9876543210fedcba9876543210"
 	normalBurst     = 10000
@@ -229,6 +230,7 @@ func (h *harness) writeTree(dir string, rps, burst int, adminRole string) error 
 	}
 	secrets := map[string]string{
 		"admin.secret":    adminSecret,
+		"keeper.secret":   keeperSecret,
 		"operator.secret": operatorSecret,
 		"viewer.secret":   viewerSecret,
 	}
@@ -254,6 +256,9 @@ spec:
     tokens:
       - id: admin
         role: %s
+        secretFile: %s
+      - id: keeper
+        role: administrator
         secretFile: %s
       - id: operator
         role: operator
@@ -285,6 +290,7 @@ spec:
         mode: follow-real
 `, adminRole,
 		filepath.Join(dir, "admin.secret"),
+		filepath.Join(dir, "keeper.secret"),
 		filepath.Join(dir, "operator.secret"),
 		filepath.Join(dir, "viewer.secret"),
 		rps, burst)
@@ -465,6 +471,10 @@ func (h *harness) record(block int, ip, method, path, body string, hdr map[strin
 	for k, v := range hdr {
 		hdrCopy[k] = v
 	}
+	// req-<block>-<n> matches ^req-\d+-\d+$. ntp echoes a non-empty incoming
+	// X-Request-ID. The normalizer leaves that form verbatim. A server that
+	// ignores the header mints crypto/rand hex, which the <request:n> rule
+	// still masks, so the transcript shows the change.
 	hdrCopy["X-Request-ID"] = fmt.Sprintf("req-%d-%d", block, h.reqN)
 	if body != "" && hdrCopy["Content-Type"] == "" {
 		hdrCopy["Content-Type"] = "application/json"
@@ -474,13 +484,9 @@ func (h *harness) record(block int, ip, method, path, body string, hdr map[strin
 		return res, err
 	}
 	fmt.Fprintf(&h.b, "-- req block=%d n=%d group=%s method=%s path=%s status=%d\n", block, h.reqN, ip, method, path, res.status)
-	for _, key := range []string{"Content-Type", "WWW-Authenticate", "Cache-Control", "Allow", "X-LabNTP-Revision", "X-Request-ID"} {
-		if v := res.headers.Get(key); v != "" {
-			fmt.Fprintf(&h.b, "%s: %s\n", key, v)
-		}
-	}
-	for _, v := range res.headers.Values("Set-Cookie") {
-		fmt.Fprintf(&h.b, "Set-Cookie: %s\n", v)
+	for _, line := range sortedHeaderLines(res.headers) {
+		h.b.WriteString(line)
+		h.b.WriteByte('\n')
 	}
 	h.b.WriteString(res.body)
 	if !strings.HasSuffix(res.body, "\n") {
@@ -517,8 +523,33 @@ func (h *harness) end(n int, start time.Time) error {
 	return h.epilogue(n)
 }
 
+// sortedHeaderLines writes every response header except Date and
+// Content-Length. Names are sorted. Values stay in emission order, which is
+// stable for a given handler; sorting Set-Cookie by the raw secret would
+// reorder lines across runs and fail the self-diff.
+func sortedHeaderLines(h http.Header) []string {
+	keys := make([]string, 0, len(h))
+	for k := range h {
+		if strings.EqualFold(k, "Date") || strings.EqualFold(k, "Content-Length") {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var lines []string
+	for _, k := range keys {
+		for _, v := range h.Values(k) {
+			lines = append(lines, k+": "+v)
+		}
+	}
+	return lines
+}
+
 func (h *harness) epilogue(block int) error {
-	res, err := h.record(block, epiIP, http.MethodGet, "/v1/audit?limit=100", "", bearer(adminSecret))
+	// keeper is a second administrator. Block 4 demotes the admin token to
+	// viewer, so an audit read as admin is 403 with no events, and the
+	// restart that follows drops the ring. keeper's role is never rewritten.
+	res, err := h.record(block, epiIP, http.MethodGet, "/v1/audit?limit=100", "", bearer(keeperSecret))
 	if err != nil {
 		return err
 	}
@@ -668,7 +699,58 @@ func (h *harness) block1() error {
 	if _, err := h.mcp(1, ip, "ntp_version_get", map[string]any{}, map[string]string{"Authorization": "Token abc"}); err != nil {
 		return err
 	}
+	// Bearer variants. REST missing and wrong bearer are the calls above.
+	// Lowercase scheme with a valid token is accepted (scheme compare is
+	// case-insensitive). MCP gets the same three: missing, wrong, lowercase.
+	lower := map[string]string{"Authorization": "bearer " + adminSecret}
+	if _, err := h.record(1, ip, http.MethodGet, "/v1/state", "", lower); err != nil {
+		return err
+	}
+	if _, err := h.mcp(1, ip, "ntp_version_get", map[string]any{}, lower); err != nil {
+		return err
+	}
+	if _, err := h.mcp(1, ip, "ntp_version_get", map[string]any{}, nil); err != nil {
+		return err
+	}
+	if _, err := h.mcp(1, ip, "ntp_version_get", map[string]any{}, bearer("not-a-token")); err != nil {
+		return err
+	}
+	if err := h.operatorCalls(1); err != nil {
+		return err
+	}
 	return h.end(1, start)
+}
+
+// operatorCalls records one allowed write and one refused admin call on REST
+// and the same pair on MCP over HTTP. The operator token is in the fixture.
+func (h *harness) operatorCalls(block int) error {
+	ip := "127.0.0.17"
+	rev, err := h.revision(block, ip)
+	if err != nil {
+		return err
+	}
+	body := filterPutBody("operator-rest", rev, "idem-operator-rest", "10.8.8.8/32")
+	if _, err := h.record(block, ip, http.MethodPut, "/v1/filters/operator-rest", body, bearer(operatorSecret)); err != nil {
+		return err
+	}
+	if _, err := h.record(block, ip, http.MethodGet, "/v1/state:export", "", bearer(operatorSecret)); err != nil {
+		return err
+	}
+	rev, err = h.revision(block, ip)
+	if err != nil {
+		return err
+	}
+	if _, err := h.mcp(block, ip, "ntp_filters_put", toolArgs("ntp_filters_put", rev, "idem-operator-mcp", ""), bearer(operatorSecret)); err != nil {
+		return err
+	}
+	if _, err := h.mcp(block, ip, "ntp_state_export", map[string]any{"format": "yaml"}, bearer(operatorSecret)); err != nil {
+		return err
+	}
+	return nil
+}
+
+func filterPutBody(name, rev, key, cidr string) string {
+	return fmt.Sprintf(`{"expectedRevision":%q,"idempotencyKey":%q,"reason":"harness","filter":{"name":%q,"enabled":true,"match":{"cidrs":[%q]},"view":{"mode":"follow-real","leap":"none","stratum":2,"refid":"LOCL"}}}`, rev, key, name, cidr)
 }
 
 func (h *harness) mcp(block int, ip, tool string, args any, hdr map[string]string) (response, error) {
@@ -722,6 +804,33 @@ func (h *harness) block2() error {
 	if _, err = h.record(2, ip, http.MethodPost, "/v1/changes:apply", body, h.with(ck, map[string]string{"X-LabNTP-CSRF": csrf})); err != nil {
 		return err
 	}
+	if _, err = h.record(2, ip, http.MethodGet, "/v1/state", "", map[string]string{"Cookie": "labntp_session=garbage"}); err != nil {
+		return err
+	}
+	// MCP authenticate does not read cookies. A live session cookie alone is
+	// not a bearer.
+	if _, err = h.mcp(2, ip, "ntp_version_get", map[string]any{}, ck); err != nil {
+		return err
+	}
+	if _, err = h.record(2, ip, http.MethodGet, "/v1/state", "", h.with(ck, bearer(adminSecret))); err != nil {
+		return err
+	}
+	rev, err = h.revision(2, ip)
+	if err != nil {
+		return err
+	}
+	both := applyBody(rev, "idem-cookie-bearer", "harness", "serve")
+	// Authorization present skips the CSRF check, so cookie plus bearer is a
+	// write without X-LabNTP-CSRF.
+	if _, err = h.record(2, ip, http.MethodPost, "/v1/changes:apply", both, h.with(ck, bearer(adminSecret))); err != nil {
+		return err
+	}
+	if _, err = h.record(2, ip, http.MethodGet, "/v1/session", "", h.with(ck, map[string]string{"Origin": "https://evil.example"})); err != nil {
+		return err
+	}
+	if _, err = h.record(2, ip, http.MethodDelete, "/v1/session", "", ck); err != nil {
+		return err
+	}
 	if _, err = h.record(2, ip, http.MethodDelete, "/v1/session", "", h.with(ck, map[string]string{"X-LabNTP-CSRF": csrf})); err != nil {
 		return err
 	}
@@ -754,6 +863,10 @@ func (h *harness) block3() error {
 		"http://127.0.0.1:8080",
 		"http://10.1.2.3",
 		"http://",
+		"null",
+		"HTTPS://LAB.EXAMPLE",
+		"https://lab.example/",
+		"https://lab.example:443",
 	} {
 		hdr := bearer(adminSecret)
 		if origin != "" {
@@ -813,10 +926,15 @@ func (h *harness) block4() (*stdioProc, error) {
 	if err != nil {
 		return sp, err
 	}
-	swapped := strings.Replace(string(raw), "role: administrator", "role: viewer", 1)
-	if swapped == string(raw) {
+	// Rewrite only the admin token. keeper stays administrator so the block
+	// epilogue can read the audit ring after this reset and before the
+	// process is restarted.
+	const adminRoleYAML = "      - id: admin\n        role: administrator\n"
+	const adminViewerYAML = "      - id: admin\n        role: viewer\n"
+	if !strings.Contains(string(raw), adminRoleYAML) {
 		return sp, fmt.Errorf("block 4: administrator role not found")
 	}
+	swapped := strings.Replace(string(raw), adminRoleYAML, adminViewerYAML, 1)
 	if err := os.WriteFile(yamlPath, []byte(swapped), 0o644); err != nil {
 		return sp, err
 	}
@@ -870,6 +988,13 @@ func (h *harness) block4() (*stdioProc, error) {
 }
 
 func (h *harness) recordStdioDemotion(sp *stdioProc) error {
+	// This process still authenticates the admin secret as administrator.
+	// The reset below reloads the demoted role and drops ntp.audit.read, so
+	// ntp_audit_list has to run first or the rows are unreadable. The caller
+	// stops the process only after block 4 returns.
+	if err := h.recordStdioAudit(sp); err != nil {
+		return err
+	}
 	res, err := sp.call("ntp_state_reset", map[string]any{"reason": "stdio-demote"})
 	if err != nil {
 		return err
@@ -896,6 +1021,48 @@ func (h *harness) recordStdioDemotion(sp *stdioProc) error {
 	}
 	h.writeStdio(4, "ntp_not_a_tool", res)
 	return nil
+}
+
+// recordStdioAudit writes one audited mutation, then ntp_audit_list, while
+// the stdio token is still administrator. The row is this process's own
+// ring, not the HTTP server's.
+func (h *harness) recordStdioAudit(sp *stdioProc) error {
+	state, err := sp.call("ntp_state_get", map[string]any{})
+	if err != nil {
+		return err
+	}
+	h.writeStdio(4, "ntp_state_get-audit", state)
+	rev := stdioRevision(state)
+	if rev == "" {
+		return fmt.Errorf("block 4: stdio state has no revision: %s", state)
+	}
+	put, err := sp.call("ntp_filters_put", toolArgs("ntp_filters_put", rev, "idem-stdio-audit", ""))
+	if err != nil {
+		return err
+	}
+	h.writeStdio(4, "ntp_filters_put-audit", put)
+	listed, err := sp.call("ntp_audit_list", map[string]any{"limit": 100})
+	if err != nil {
+		return err
+	}
+	h.writeStdio(4, "ntp_audit_list", listed)
+	return nil
+}
+
+func stdioRevision(body string) string {
+	for _, key := range []string{`"RuntimeRevision":"`, `"runtimeRevision":"`} {
+		i := strings.Index(body, key)
+		if i < 0 {
+			continue
+		}
+		rest := body[i+len(key):]
+		j := strings.IndexByte(rest, '"')
+		if j < 0 {
+			return ""
+		}
+		return rest[:j]
+	}
+	return ""
 }
 
 func (h *harness) writeStdio(block int, name, body string) {
@@ -965,6 +1132,28 @@ func (h *harness) block6() error {
 	}
 	conflict := applyBody(rev, "idem-replay", "same", "serve")
 	if _, err := h.record(6, ip, http.MethodPost, "/v1/changes:apply", conflict, bearer(adminSecret)); err != nil {
+		return err
+	}
+	// The cache is process-global. keeper is a second administrator, so the
+	// same key and fingerprint replay for another actor. MCP replays the
+	// same fingerprint on the other transport. A different reason conflicts.
+	// operator is not used: changes.apply requires ntp.admin, and a mutant
+	// that grants the operator that scope must not turn this step into a
+	// second apply.
+	keeperIP := "127.0.0.17"
+	if _, err := h.record(6, keeperIP, http.MethodPost, "/v1/changes:apply", body, bearer(keeperSecret)); err != nil {
+		return err
+	}
+	if _, err := h.mcp(6, ip, "ntp_change_apply", map[string]any{
+		"expectedRevision": rev,
+		"idempotencyKey":   "idem-replay",
+		"reason":           "same",
+		"operations":       []any{map[string]any{"op": "replaceRestrict", "restrict": map[string]any{"default": "limited", "kod": true}}},
+	}, bearer(adminSecret)); err != nil {
+		return err
+	}
+	other := applyBody(rev, "idem-replay", "other-actor", "limited")
+	if _, err := h.record(6, keeperIP, http.MethodPost, "/v1/changes:apply", other, bearer(keeperSecret)); err != nil {
 		return err
 	}
 	return h.end(6, start)

@@ -11,7 +11,7 @@ GOLANGCI_LINT_MOD ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GO
 .PHONY: help fmt format lint vet build generate verify-generated test test-race \
 	test-fuzz-smoke test-parity test-config-compat test-docs test-container \
 	security-scan test-changelog web-install web-test web-build web-embed \
-	diff-transcript
+	diff-transcript check-characterization-frozen
 
 help:
 	@printf '%s\n' \
@@ -19,7 +19,8 @@ help:
 		'  format              go fmt ./...' \
 		'  fmt                 alias for format' \
 		'  vet                 go vet ./...' \
-		'  lint                go vet + golangci-lint $(GOLANGCI_LINT_VERSION) + scripts/check-auth-fence.sh' \
+		'  lint                go vet + golangci-lint $(GOLANGCI_LINT_VERSION) + scripts/check-characterization-frozen.sh + scripts/check-auth-fence.sh' \
+		'  check-characterization-frozen  fail if characterization tests or the DiffTranscript harness drift from testdata/characterization.manifest' \
 		'  build               go build -o bin/labntp ./cmd/labntp' \
 		'  generate            write api/capabilities, openapi, mcp, metrics JSON' \
 		'  verify-generated    fail if generate would change those files' \
@@ -48,7 +49,11 @@ vet:
 
 lint: vet
 	$(GO) run $(GOLANGCI_LINT_MOD) run ./...
+	bash scripts/check-characterization-frozen.sh
 	bash scripts/check-auth-fence.sh
+
+check-characterization-frozen:
+	bash scripts/check-characterization-frozen.sh
 
 build:
 	$(GO) build -o bin/labntp ./cmd/labntp

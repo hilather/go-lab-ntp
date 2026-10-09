@@ -11,13 +11,20 @@ import (
 )
 
 var (
-	sha256Re    = regexp.MustCompile(`sha256:[0-9a-fA-F]{64}`)
-	auditRe     = regexp.MustCompile(`\baud-[0-9]+\b`)
-	cookieRe    = regexp.MustCompile(`(?i)(labntp_session=)([0-9a-fA-F]{64})`)
-	csrfJSONRe  = regexp.MustCompile(`(?i)("csrf"\s*:\s*")([0-9a-fA-F]{64})(")`)
-	csrfHdrRe   = regexp.MustCompile(`(?i)(X-LabNTP-CSRF:\s*)([0-9a-fA-F]{64})`)
-	requestURN  = regexp.MustCompile(`(urn:labntp:request:)([^\s"\\]+)`)
-	requestHdr  = regexp.MustCompile(`(?i)(X-Request-ID:\s*)(\S+)`)
+	sha256Re   = regexp.MustCompile(`sha256:[0-9a-fA-F]{64}`)
+	auditRe    = regexp.MustCompile(`\baud-[0-9]+\b`)
+	cookieRe   = regexp.MustCompile(`(?i)(labntp_session=)([0-9a-fA-F]{64})`)
+	csrfJSONRe = regexp.MustCompile(`(?i)("csrf"\s*:\s*")([0-9a-fA-F]{64})(")`)
+	csrfHdrRe  = regexp.MustCompile(`(?i)(X-LabNTP-CSRF:\s*)([0-9a-fA-F]{64})`)
+	requestURN = regexp.MustCompile(`(urn:labntp:request:)([^\s"\\]+)`)
+	requestHdr = regexp.MustCompile(`(?i)(X-Request-ID:\s*)(\S+)`)
+	// reqStable is the harness X-Request-ID, req-<block>-<n>. ntp copies a
+	// non-empty incoming header (internal/control/rest/server.go requestID
+	// and internal/control/mcp/server.go requestID) and only falls back to
+	// crypto/rand hex when the header is absent. The req-N-N form is
+	// deterministic per scenario and must stay verbatim. Any other value is
+	// still the named <request:n> rule.
+	reqStable   = regexp.MustCompile(`^req-\d+-\d+$`)
 	etagRe      = regexp.MustCompile(`(?i)(ETag:\s*)(\S+)`)
 	hex64Re     = regexp.MustCompile(`\b[0-9a-fA-F]{64}\b`)
 	hex32JSONRe = regexp.MustCompile(`"([0-9a-fA-F]{32})"`)
@@ -73,10 +80,16 @@ func Normalize(in []byte, addrs []string) []byte {
 	})
 	s = requestURN.ReplaceAllStringFunc(s, func(m string) string {
 		parts := requestURN.FindStringSubmatch(m)
+		if reqStable.MatchString(parts[2]) {
+			return m
+		}
 		return parts[1] + next("request", parts[2])
 	})
 	s = requestHdr.ReplaceAllStringFunc(s, func(m string) string {
 		parts := requestHdr.FindStringSubmatch(m)
+		if reqStable.MatchString(parts[2]) {
+			return m
+		}
 		return parts[1] + next("request", parts[2])
 	})
 	s = etagRe.ReplaceAllStringFunc(s, func(m string) string {
@@ -106,7 +119,8 @@ func Normalize(in []byte, addrs []string) []byte {
 	s = buildTimeRe.ReplaceAllString(s, `"buildTime":"<build>"`)
 	s = versionDev.ReplaceAllString(s, `"version":"<build>"`)
 	s = rfc3339Re.ReplaceAllString(s, "<ts>")
-	s = unixFieldRe.ReplaceAllString(s, `"$1":"<ts>"`)
+	// Keep a JSON number. "<ts>" would change the type of a numeric time.
+	s = unixFieldRe.ReplaceAllString(s, `"$1":0`)
 	s = dateHdrRe.ReplaceAllString(s, "")
 	s = histDropRe.ReplaceAllString(s, "")
 	s = gaugeDropRe.ReplaceAllString(s, "")

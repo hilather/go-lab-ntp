@@ -26,6 +26,15 @@ out="${DIFFTRANSCRIPT_OUT:-difftranscript-out}"
 rm -rf "$out"
 mkdir -p "$out"
 
+# secretFile values are absolute paths and are copied into state JSON, so
+# they show up in the transcript (state get, export). Base, head, and both
+# self-diff passes must share one fixture directory. It lives under the
+# output dir, not mktemp, so a repeated run from this checkout reuses the
+# same path too. Do not give each pass its own directory.
+fixture="$out/fixture"
+rm -rf "$fixture"
+mkdir -p "$fixture"
+
 tmp="$(mktemp -d)"
 cleanup() {
 	git worktree remove --force "$tmp/base" >/dev/null 2>&1 || true
@@ -54,7 +63,7 @@ go test -c -o "$tmp/driver" ./internal/testutil/difftranscript
 run_once() {
 	local bin="$1"
 	local dest="$2"
-	timeout 12m "$tmp/driver" -mode=scenario -binary "$bin" -fixture "$tmp/fixture" -out "$dest"
+	timeout 12m "$tmp/driver" -mode=scenario -binary "$bin" -fixture "$fixture" -out "$dest"
 }
 
 self_diff() {
@@ -69,6 +78,7 @@ self_diff() {
 		diff -u "$a" "$b" | head -n 200 >&2 || true
 		exit 1
 	fi
+	echo "diff-transcript: self-diff $label clean"
 }
 
 self_diff base "$tmp/labntp-base" "$tmp/base-a.txt" "$tmp/base-b.txt"
