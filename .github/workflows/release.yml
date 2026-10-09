@@ -31,7 +31,7 @@ permissions:
   checks: read
 
 concurrency:
-  group: release-${{ github.workflow }}-${{ github.event.inputs.ref || github.ref }}
+  group: release-${{ github.workflow }}-${{ startsWith(github.event.inputs.ref || github.ref, 'refs/') && (github.event.inputs.ref || github.ref) || format('refs/tags/{0}', github.event.inputs.ref) }}
   cancel-in-progress: false
 
 env:
@@ -72,6 +72,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
           ref: refs/tags/${{ steps.tag.outputs.ref }}
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -190,6 +191,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
           ref: refs/tags/${{ steps.tag.outputs.ref }}
 
       - name: Resolve peeled commit
