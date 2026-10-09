@@ -70,7 +70,13 @@ func TestCharacterizeIdempotency(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	replay.ExpectedRevision = applied.RuntimeRevision
+	// Same key, reason, and operations. Only expectedRevision changes.
+	// A cached apply returns before the revision check.
+	firstRev := replay.ExpectedRevision
+	replay.ExpectedRevision = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if replay.ExpectedRevision == firstRev {
+		t.Fatalf("expectedRevision did not change: %s", firstRev)
+	}
 	r2, err := svc.Apply(ctx, a, replay)
 	if err != nil {
 		t.Fatal(err)

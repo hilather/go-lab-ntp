@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,13 +18,13 @@ import (
 func TestCharacterizeMCPAuthText(t *testing.T) {
 	s, _ := newTestServer(t)
 	basic := callMCP(t, s, "Basic YWRtaW46c2VjcmV0")
-	assertRPC(t, basic, http.StatusUnauthorized, "MCP accepts bearer tokens only")
-	assertRPC(t, callMCP(t, s, ""), http.StatusUnauthorized, "authentication required")
-	assertRPC(t, callMCP(t, s, "Bearer nope"), http.StatusUnauthorized, "authentication required")
-	assertRPC(t, callMCP(t, s, "Token abc"), http.StatusUnauthorized, "authentication required")
+	assertRPC(t, basic, http.StatusUnauthorized, -32001, "MCP accepts bearer tokens only")
+	assertRPC(t, callMCP(t, s, ""), http.StatusUnauthorized, -32001, "authentication required")
+	assertRPC(t, callMCP(t, s, "Bearer nope"), http.StatusUnauthorized, -32001, "authentication required")
+	assertRPC(t, callMCP(t, s, "Token abc"), http.StatusUnauthorized, -32001, "authentication required")
 
 	nilSrv := newMCPAuth(t, bootTestApp(t), nil)
-	assertRPC(t, callMCP(t, nilSrv, "Bearer "+testBearerToken), http.StatusUnauthorized, "authentication required")
+	assertRPC(t, callMCP(t, nilSrv, "Bearer "+testBearerToken), http.StatusUnauthorized, -32001, "authentication required")
 
 	origin := newMCPOrigin(t, []string{"https://lab.example"})
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ntp_version_get","arguments":{}}}`))
@@ -35,7 +36,7 @@ func TestCharacterizeMCPAuthText(t *testing.T) {
 	req.RemoteAddr = "192.0.2.1:1234"
 	w := httptest.NewRecorder()
 	origin.Handler().ServeHTTP(w, req)
-	assertRPC(t, w.Result(), http.StatusForbidden, "origin is not allowed")
+	assertRPC(t, w.Result(), http.StatusForbidden, -32003, "origin is not allowed")
 
 	emptyHost := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ntp_version_get","arguments":{}}}`))
 	emptyHost.Header.Set("Authorization", "Bearer "+testBearerToken)
@@ -46,7 +47,7 @@ func TestCharacterizeMCPAuthText(t *testing.T) {
 	emptyHost.RemoteAddr = "192.0.2.1:1234"
 	ew := httptest.NewRecorder()
 	origin.Handler().ServeHTTP(ew, emptyHost)
-	assertRPC(t, ew.Result(), http.StatusForbidden, "origin is not allowed")
+	assertRPC(t, ew.Result(), http.StatusForbidden, -32003, "origin is not allowed")
 }
 
 func TestCharacterizeUnmappedToolAllowed(t *testing.T) {
@@ -132,7 +133,7 @@ func callMCP(t *testing.T, s *Server, authorization string) *http.Response {
 	return w.Result()
 }
 
-func assertRPC(t *testing.T, res *http.Response, status int, message string) {
+func assertRPC(t *testing.T, res *http.Response, status, code int, message string) {
 	t.Helper()
 	defer func() { _ = res.Body.Close() }()
 	b, err := io.ReadAll(res.Body)
@@ -142,8 +143,17 @@ func assertRPC(t *testing.T, res *http.Response, status int, message string) {
 	if res.StatusCode != status {
 		t.Fatalf("status %d body %s", res.StatusCode, b)
 	}
-	if !strings.Contains(string(b), message) {
-		t.Fatalf("body %s want %q", b, message)
+	var doc struct {
+		Error struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Error.Code != code || doc.Error.Message != message {
+		t.Fatalf("rpc %+v body %s", doc.Error, b)
 	}
 	if status == http.StatusUnauthorized {
 		if got := res.Header.Get("WWW-Authenticate"); got != `Bearer realm="labntp"` {

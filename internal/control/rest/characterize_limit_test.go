@@ -27,6 +27,9 @@ func TestCharacterizeRESTLimiterCtorAndSetRate(t *testing.T) {
 	}
 
 	zero := newLimiter(0, 0)
+	if zero.rate != 32 {
+		t.Fatalf("newLimiter(0, 0) rate %v", zero.rate)
+	}
 	assertAllowsThenDeny(t, zero, "203.0.113.2:1", 64)
 
 	negBurst := newLimiter(1, -5)
@@ -35,8 +38,14 @@ func TestCharacterizeRESTLimiterCtorAndSetRate(t *testing.T) {
 	live := newLimiter(5, 7)
 	assertAllowsThenDeny(t, live, "203.0.113.4:1", 7)
 	live.setRate(0, 0)
+	if live.rate != 32 {
+		t.Fatalf("setRate(0, 0) rate %v", live.rate)
+	}
 	assertAllowsThenDeny(t, live, "203.0.113.5:1", 64)
 	live.setRate(-1, -2)
+	if live.rate != 32 {
+		t.Fatalf("setRate(-1, -2) rate %v", live.rate)
+	}
 	assertAllowsThenDeny(t, live, "203.0.113.6:1", 64)
 	live.setRate(3, 9)
 	assertAllowsThenDeny(t, live, "203.0.113.7:1", 9)

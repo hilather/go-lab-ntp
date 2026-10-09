@@ -80,6 +80,29 @@ func TestCharacterizeScopeMatrix(t *testing.T) {
 		t.Fatalf("empty role with explicit scopes: %+v", p)
 	}
 
+	noRole, err := FromSpec(model.AuthSpec{
+		Mode: model.MgmtAuthBearer,
+		Tokens: []model.TokenSpec{{
+			ID:         "no-role",
+			SecretFile: secret,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = noRole.AuthenticateBearer("0123456789abcdef0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Role != model.RoleAdministrator || len(p.Scopes) != len(wantAdmin) {
+		t.Fatalf("empty role and scopes: %+v", p)
+	}
+	for i := range wantAdmin {
+		if p.Scopes[i] != wantAdmin[i] {
+			t.Fatalf("empty role and scopes order %v", p.Scopes)
+		}
+	}
+
 	_, err = FromSpec(model.AuthSpec{
 		Mode: model.MgmtAuthBearer,
 		Tokens: []model.TokenSpec{{

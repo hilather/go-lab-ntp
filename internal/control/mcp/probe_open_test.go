@@ -167,9 +167,10 @@ func TestMCPSchemaGapProbe(t *testing.T) {
 		// byte array, so it is not an open object. Record that injection anyway.
 		if name == "ntp_state_validate" {
 			lines = append(lines, probeCase(t, ts, name, "c-state", withUnknown(minimal, "state")))
-			// The published schema types state as a byte array, so an object
-			// never reaches decodeCandidateState. A byte array of a document
-			// that contains an unknown key does.
+			// A byte array of {"zzUnknown":true} reaches decodeCandidateState
+			// as JSON array text ([123,34,...]). DecodeJSON fails as a type
+			// mismatch ("JSON decode failed"). It never sees the object or
+			// the unknown key. Do not turn this case into an unknown-field check.
 			doc := []byte(`{"zzUnknown":true}`)
 			nums := make([]any, len(doc))
 			for i, b := range doc {
