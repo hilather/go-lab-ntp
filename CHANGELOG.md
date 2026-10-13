@@ -25,6 +25,7 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 - REST mutation JSON rejects unknown fields.
 - NTP per-IP and limited buckets, and the MCP management per-remote buckets, evict idle keys and stay capped. An empty oldest MCP key is evicted like any other, so the map cannot grow past the cap.
 - Tag release CI must be the green push for that tag and SHA. A green main or pull-request run of the same commit does not pass the gate. The tag name is passed into the release script as an environment variable. Only the newest matching tag push is judged; an older queued or in-progress run does not block a newer completed green run.
+- A `workflow_dispatch` re-gate of a release tag works when started from a branch. GitHub ignores the release workflow's step-env overrides of `GITHUB_SHA`, `GITHUB_REF` and `GITHUB_REF_NAME`, so the gate saw the branch and failed. The workflow now passes the tag and the checked-out commit to `release-gate -require-ci` as `-tag` and `-sha`; `-tag` without `-sha` uses `git rev-parse HEAD`.
 - Raise `golang.org/x/sys` from v0.41.0 to v0.47.0, past advisory GO-2026-5024 (fixed in v0.44.0). govulncheck found it in a required module only; no LabNTP code path called it.
 
 ### Removed or deprecated
