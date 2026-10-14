@@ -7,11 +7,14 @@
 // -tag or -sha set, GITHUB_SHA is not read; with -tag set, GITHUB_REF and
 // GITHUB_REF_NAME are not read. -tag without -sha uses git rev-parse HEAD.
 // With neither flag the tag and SHA come from the environment, which holds
-// on a tag push.
+// on a tag push. A missing or unfinished tag run exits 75; every other
+// error exits 1. A pre-release whose name contains pending does not change
+// that.
 package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -35,11 +38,32 @@ var requiredCIJobs = []string{
 	"container-test", "web",
 }
 
-// releaseTagPattern is the tag shape the release workflow accepts.
-var releaseTagPattern = regexp.MustCompile(`^v[0-9A-Za-z.+-]+$`)
+// releaseTagPatternSrc is the tag shape this repo accepts.
+// Leading zeros are accepted because the regex matches controlkit's.
+// v01.2.3 matches.
+const releaseTagPatternSrc = `^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`
+
+var releaseTagPattern = regexp.MustCompile(releaseTagPatternSrc)
 
 // commitSHAPattern is a full lowercase SHA-1 or SHA-256 commit id.
 var commitSHAPattern = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
+
+const (
+	exitRetryable = 75 // sysexits EX_TEMPFAIL; the workflow retries only this
+	pendingPrefix = "pending"
+	noMatchPrefix = "no matching run"
+)
+
+// retryableError is a missing or unfinished CI run. Other errors are not
+// retryable, even when the tag is a pre-release such as v1.0.0-pending.
+type retryableError struct{ msg string }
+
+func (e *retryableError) Error() string { return e.msg }
+
+func retryable(err error) bool {
+	var target *retryableError
+	return errors.As(err, &target)
+}
 
 const usage = "usage: release-gate -notes-only -notes PATH | -require-ci [-tag TAG] [-sha SHA]\n"
 
@@ -83,6 +107,9 @@ func run(args []string, stderr io.Writer) int {
 
 func fail(stderr io.Writer, err error) int {
 	_, _ = fmt.Fprintf(stderr, "release-gate: %v\n", err)
+	if retryable(err) {
+		return exitRetryable
+	}
 	return 1
 }
 
@@ -117,8 +144,8 @@ func resolveReleaseTag() (string, error) {
 	}
 	tag = strings.TrimPrefix(tag, "refs/tags/")
 	if !releaseTagPattern.MatchString(tag) {
-		// The ref is not echoed: the workflow retries on "pending" and
-		// "no matching run" in the output.
+		// The value is not echoed. Retry is exit 75 from retryableError,
+		// and this error is not one.
 		return "", fmt.Errorf("no release tag in GITHUB_REF or GITHUB_REF_NAME")
 	}
 	return tag, nil
@@ -129,8 +156,8 @@ func resolveReleaseTag() (string, error) {
 func flagTag(raw string) (string, error) {
 	tag := strings.TrimPrefix(strings.TrimSpace(raw), "refs/tags/")
 	if !releaseTagPattern.MatchString(tag) {
-		// The value is not echoed: the workflow retries on "pending" and
-		// "no matching run" in the output.
+		// The value is not echoed. Retry is exit 75 from retryableError,
+		// and this error is not one.
 		return "", fmt.Errorf("-tag is not a release tag")
 	}
 	return tag, nil
@@ -200,7 +227,7 @@ func requireGreenCI(tagArg, shaArg string) error {
 		matched = append(matched, match{id: r.DatabaseID, status: r.Status})
 	}
 	if len(matched) == 0 {
-		return fmt.Errorf("no matching run for tag %s commit %s", tag, sha)
+		return &retryableError{msg: fmt.Sprintf("%s for tag %s commit %s", noMatchPrefix, tag, sha)}
 	}
 	// Judge only the highest databaseId. An older queued or in-progress
 	// run must not block a newer completed green run.
@@ -211,7 +238,7 @@ func requireGreenCI(tagArg, shaArg string) error {
 		}
 	}
 	if best.status != "completed" {
-		return fmt.Errorf("pending CI run for tag %s", tag)
+		return &retryableError{msg: fmt.Sprintf("%s CI run for tag %s", pendingPrefix, tag)}
 	}
 	view := exec.Command("gh", "run", "view", fmt.Sprintf("%d", best.id), "--json", "jobs")
 	jobJSON, err := view.Output()
