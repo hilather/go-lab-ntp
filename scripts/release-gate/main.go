@@ -9,7 +9,8 @@
 // With neither flag the tag and SHA come from the environment, which holds
 // on a tag push. A missing or unfinished tag run exits 75; every other
 // error exits 1. A pre-release whose name contains pending does not change
-// that.
+// that. Each required CI job name must appear exactly once with conclusion
+// success, and that failure exits 1.
 package main
 
 import (
@@ -163,6 +164,45 @@ func flagTag(raw string) (string, error) {
 	return tag, nil
 }
 
+type ciJob struct {
+	Name       string `json:"name"`
+	Conclusion string `json:"conclusion"`
+}
+
+// judgeJobs requires each requiredCIJobs name exactly once with conclusion
+// success. A missing name, a duplicate, and any conclusion other than
+// success are hard failures. Extra names are ignored. The error is not
+// retryable. Two green copies fail; controlkit allows that case.
+func judgeJobs(jobs []ciJob) error {
+	got := map[string][]string{}
+	for _, j := range jobs {
+		got[j.Name] = append(got[j.Name], j.Conclusion)
+	}
+	var bad []string
+	for _, name := range requiredCIJobs {
+		cs := got[name]
+		switch len(cs) {
+		case 0:
+			bad = append(bad, name+"=missing")
+		case 1:
+			if cs[0] != "success" {
+				bad = append(bad, fmt.Sprintf("%s=%s", name, cs[0]))
+			}
+		default:
+			bad = append(bad, name+"=exactly once")
+			for _, c := range cs {
+				if c != "success" {
+					bad = append(bad, fmt.Sprintf("%s=%s", name, c))
+				}
+			}
+		}
+	}
+	if len(bad) > 0 {
+		return fmt.Errorf("required CI jobs not green: %s", strings.Join(bad, ", "))
+	}
+	return nil
+}
+
 // requireGreenCI requires the newest CI run of the tag push to be green.
 // tagArg and shaArg come from -tag and -sha; see the package comment for
 // which environment variables each one replaces.
@@ -246,26 +286,10 @@ func requireGreenCI(tagArg, shaArg string) error {
 		return fmt.Errorf("gh run view: %w", err)
 	}
 	var payload struct {
-		Jobs []struct {
-			Name       string `json:"name"`
-			Conclusion string `json:"conclusion"`
-		} `json:"jobs"`
+		Jobs []ciJob `json:"jobs"`
 	}
 	if err := json.Unmarshal(jobJSON, &payload); err != nil {
 		return fmt.Errorf("parse jobs: %w", err)
 	}
-	got := map[string]string{}
-	for _, j := range payload.Jobs {
-		got[j.Name] = j.Conclusion
-	}
-	var missing []string
-	for _, name := range requiredCIJobs {
-		if got[name] != "success" {
-			missing = append(missing, fmt.Sprintf("%s=%s", name, got[name]))
-		}
-	}
-	if len(missing) > 0 {
-		return fmt.Errorf("required CI jobs not green: %s", strings.Join(missing, ", "))
-	}
-	return nil
+	return judgeJobs(payload.Jobs)
 }

@@ -40,7 +40,9 @@ Tag-triggered workflow [`.github/workflows/release.yml`](../.github/workflows/re
   before checkout. Checkout is only `refs/tags/<tag>`. The job fails unless
   `HEAD` is `refs/tags/<tag>^{commit}`, and that peeled commit is passed as
   `-sha`. The gate exits 75 while the tag's own push run is missing or not
-  completed, and the workflow retries only status 75. The ref is not
+  completed, and the workflow retries only status 75. Each required CI job
+  name must appear exactly once in that run with conclusion `success`; a
+  missing, repeated, or failed job exits 1 and is not retried. The ref is not
   interpolated into `run:`. `publish-image` checks out the same canonical
   tag, runs only on a tag push, and builds only the commit tag-gate approved.
 

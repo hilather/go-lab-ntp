@@ -1,0 +1,10 @@
+# Image build context. docker build compiles the Go command and copies
+# LICENSE. UI bytes come from internal/web/dist and internal/web/stub
+# (go:embed), which stay in the context.
+#
+# **/testdata matches a testdata directory at every depth: the repository
+# root testdata/ and nested corpora such as internal/config/testdata.
+.git
+.github
+docs
+**/testdata
