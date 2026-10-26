@@ -10,6 +10,26 @@ All notable user-visible and operator-visible changes are recorded here. This fi
 
 ### Changed
 
+- None.
+
+### Fixed
+
+- None.
+
+### Removed or deprecated
+
+- None.
+
+## 1.0.0-rc.5 - 2026-10-26
+
+Go toolchain go1.26.10 (GO-2026-6809) only. Notes: [docs/releases/v1.0.0-rc.5.md](docs/releases/v1.0.0-rc.5.md).
+
+### Added
+
+- None.
+
+### Changed
+
 - Go toolchain 1.26.9 → 1.26.10 (go.mod `toolchain`, CI `GO_VERSION` in `.github/workflows/ci.yml` and `release.yml`, Dockerfile `golang:1.26.10-alpine`, design decision D18, remaining-work release env); 1.26.9 lacks the crypto/x509 fix for GO-2026-6809.
 
 ### Fixed
